@@ -5,6 +5,8 @@ const DB_FILE = path.join(__dirname, 'verified_users.json');
 const PENDING_FILE = path.join(__dirname, 'pending_codes.json');
 const GIVEAWAYS_FILE = path.join(__dirname, 'giveaways.json');
 const REACTION_ROLES_FILE = path.join(__dirname, 'reaction_roles.json');
+const GREETED_FILE = path.join(__dirname, 'greeted_users.json');
+const REMINDER_FILE = path.join(__dirname, 'reminder_status.json');
 
 function loadJson(file) {
   if (!fs.existsSync(file)) return {};
@@ -75,6 +77,48 @@ function getAllPendingReminders() {
   }
   
   return reminders;
+}
+
+// --- Begrüßte User: verhindert doppeltes Pingen bei Rejoin ---
+function hasBeenGreeted(discordId) {
+  const data = loadJson(GREETED_FILE);
+  return Boolean(data[discordId]);
+}
+
+function markGreeted(discordId) {
+  const data = loadJson(GREETED_FILE);
+  data[discordId] = { greetedAt: new Date().toISOString() };
+  saveJson(GREETED_FILE, data);
+}
+
+// --- Erinnerungsstatus: { discordId: { joinedAt, reminded } }
+function getReminderStatus(discordId) {
+  const data = loadJson(REMINDER_FILE);
+  return data[discordId] || null;
+}
+
+function setJoinedAt(discordId, joinedAt) {
+  const data = loadJson(REMINDER_FILE);
+  if (!data[discordId]) {
+    data[discordId] = { joinedAt, reminded: false };
+    saveJson(REMINDER_FILE, data);
+  }
+}
+
+function markReminded(discordId) {
+  const data = loadJson(REMINDER_FILE);
+  if (!data[discordId]) {
+    data[discordId] = { joinedAt: new Date().toISOString(), reminded: true };
+  } else {
+    data[discordId].reminded = true;
+  }
+  saveJson(REMINDER_FILE, data);
+}
+
+function clearReminderStatus(discordId) {
+  const data = loadJson(REMINDER_FILE);
+  delete data[discordId];
+  saveJson(REMINDER_FILE, data);
 }
 
 // --- Giveaways: { messageId: { prize, channelId, guildId, hostId, winnersCount,
@@ -148,6 +192,12 @@ module.exports = {
   setPending,
   removePending,
   getAllPendingReminders,
+  hasBeenGreeted,
+  markGreeted,
+  getReminderStatus,
+  setJoinedAt,
+  markReminded,
+  clearReminderStatus,
   getGiveaway,
   getAllGiveaways,
   getActiveGiveaways,
