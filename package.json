@@ -1,0 +1,14 @@
+{
+  "name": "abyssal-welcome-bot",
+  "version": "1.0.0",
+  "description": "Welcome-Bot für 'The Abyssal Emperors' - begrüßt neue Mitglieder episch und erinnert an die Verifizierung",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  }
+}
