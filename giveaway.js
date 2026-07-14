@@ -101,6 +101,15 @@ async function start(interaction, client) {
 
   await interaction.editReply(`Giveaway started in ${channel}!`);
 
+  // ===== AUTO-PING: Giveaway Ping Rolle erwähnen =====
+  const pingRoleId = process.env.ROLE_GIVEAWAY_PING_ID;
+  if (pingRoleId) {
+    await channel.send(`<@&${pingRoleId}> 🎉 A new giveaway has started! **${prize}** — Ends <t:${Math.floor(endsAt / 1000)}:R>!`).catch(err => {
+      console.warn('Konnte Giveaway-Ping nicht senden:', err.message);
+    });
+  }
+  // ====================================================
+
   setTimeout(() => endGiveaway(message.id, client), durationMs);
 }
 
@@ -233,5 +242,7 @@ module.exports = {
   list, 
   recoverGiveaways,
   buildGiveawayEmbed,
-  buildGiveawayButtonRow
+  buildGiveawayButtonRow,
+  parseDuration,
+  pickWinners
 };
