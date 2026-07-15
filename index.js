@@ -283,12 +283,11 @@ client.on('interactionCreate', async interaction => {
         { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
           id: interaction.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-          deny: [PermissionFlagsBits.MentionEveryone, PermissionFlagsBits.MentionHere]
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
         },
         {
           id: client.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MentionEveryone]
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels]
         }
       ];
       if (SUPPORT_ROLE_ID) {
@@ -308,13 +307,9 @@ client.on('interactionCreate', async interaction => {
         channelOptions.parent = TICKET_CATEGORY_ID;
       }
 
-      let ticketChannel;
-      try {
-        ticketChannel = await interaction.guild.channels.create(channelOptions);
-      } catch (err) {
-        console.error('[Ticket] Channel creation failed:', err.message, '| Code:', err.code);
-        ticketChannel = null;
-      }
+      const ticketChannel = await interaction.guild.channels
+        .create(channelOptions)
+        .catch(() => null);
 
       if (!ticketChannel) {
         return interaction.editReply({
@@ -351,12 +346,11 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'ticket_close') {
       const ticket = storage.getTicket(interaction.channelId);
       if (!ticket) {
-        return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral }).catch(() => null);
+        return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral });
       }
 
       storage.updateTicket(interaction.channelId, { closed: true });
-      await interaction.deferReply().catch(() => null);
-      await interaction.editReply('🔒 This ticket will be deleted in 5 seconds...').catch(() => null);
+      await interaction.reply('🔒 This ticket will be deleted in 5 seconds...');
 
       setTimeout(async () => {
         const channel = await client.channels.fetch(interaction.channelId).catch(() => null);
