@@ -308,9 +308,13 @@ client.on('interactionCreate', async interaction => {
         channelOptions.parent = TICKET_CATEGORY_ID;
       }
 
-      const ticketChannel = await interaction.guild.channels
-        .create(channelOptions)
-        .catch(() => null);
+      let ticketChannel;
+      try {
+        ticketChannel = await interaction.guild.channels.create(channelOptions);
+      } catch (err) {
+        console.error('[Ticket] Channel creation failed:', err.message, '| Code:', err.code);
+        ticketChannel = null;
+      }
 
       if (!ticketChannel) {
         return interaction.editReply({
@@ -347,11 +351,12 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'ticket_close') {
       const ticket = storage.getTicket(interaction.channelId);
       if (!ticket) {
-        return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral });
+        return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral }).catch(() => null);
       }
 
       storage.updateTicket(interaction.channelId, { closed: true });
-      await interaction.reply('🔒 This ticket will be deleted in 5 seconds...');
+      await interaction.deferReply().catch(() => null);
+      await interaction.editReply('🔒 This ticket will be deleted in 5 seconds...').catch(() => null);
 
       setTimeout(async () => {
         const channel = await client.channels.fetch(interaction.channelId).catch(() => null);
