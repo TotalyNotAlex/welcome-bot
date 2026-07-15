@@ -139,5 +139,65 @@ module.exports = [
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setRequired(false)
     )
+    .toJSON(),
+
+  // ===== MUTE COMMANDS =====
+  new SlashCommandBuilder()
+    .setName('mute')
+    .setDescription('Mute a member for a set duration or permanently')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('The member to mute')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('duration')
+        .setDescription('How long the mute should last')
+        .setRequired(true)
+        .addChoices(
+          { name: '60 seconds', value: '60s' },
+          { name: '5 minutes', value: '5m' },
+          { name: '10 minutes', value: '10m' },
+          { name: '20 minutes', value: '20m' },
+          { name: '30 minutes', value: '30m' },
+          { name: '40 minutes', value: '40m' },
+          { name: '50 minutes', value: '50m' },
+          { name: '1 hour', value: '1h' },
+          { name: '2 hours', value: '2h' },
+          { name: '3 hours', value: '3h' },
+          { name: '6 hours', value: '6h' },
+          { name: '12 hours', value: '12h' },
+          { name: '24 hours', value: '24h' },
+          { name: '1 day', value: '1d' },
+          { name: '2 days', value: '2d' },
+          { name: '7 days', value: '7d' },
+          { name: 'Forever', value: 'forever' }
+        )
+    )
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Reason for the mute')
+        .setRequired(false)
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName('unmute')
+    .setDescription('Remove an active mute from a member')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('The member to unmute')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Reason for the unmute')
+        .setRequired(false)
+    )
     .toJSON()
 ];

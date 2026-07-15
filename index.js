@@ -3,6 +3,7 @@ const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials, 
 const storage = require('./storage');
 const { buildWelcomeMessage, buildReminderMessage } = require('./welcome-message');
 const { getConfiguredRoles, buildReactionRolesEmbed } = require('./reactionroles');
+const { parseDuration, applyMute, removeMute, isMuted, recoverMutes } = require('./mute-system'); // <-- NEW: Mute system
 
 // ===== TICKET SYSTEM IMPORTS =====
 const {
@@ -26,16 +27,16 @@ const {
   REMINDER_DM_ENABLED,
   REMINDER_CHANNEL_FALLBACK,
   SUPPORT_ROLE_ID,
-  TICKET_CATEGORY_ID
+  TICKET_CATEGORY_ID,
+  MOD_LOG_CHANNEL_ID // <-- NEW: Mod log channel
 } = process.env;
 
 // ===== STAFF ROLE IDs =====
-// HIER DEINE 4 ROLLEN-IDs EINTRAGEN!
 const STAFF_ROLE_IDS = [
-  '1524181401493180718',      // ⛧Captain⛧
+  '1524181401493180718',  // ⛧Captain⛧
   '1524181401493180717',  // 🩸ViceCaptains🩸
-  '1524181401484918991',        // Admin
-  '1526995353528963282'           // Mod
+  '1524181401484918991',  // Admin
+  '152699535328963282'    // Mod
 ];
 
 function isStaff(member) {
@@ -54,7 +55,6 @@ async function denyAccess(interaction) {
     await interaction.reply(reply).catch(() => {});
   }
 }
-// ===========================
 
 const reminderMs = (Number(REMINDER_MINUTES) || 10) * 60 * 1000;
 const dmEnabled = REMINDER_DM_ENABLED !== 'false';
@@ -181,6 +181,7 @@ async function handleReactionRoleChange(reaction, user, action) {
 client.once('ready', async () => {
   console.log(`Welcome-Bot eingeloggt als ${client.user.tag}`);
 
+  // ===== RECOVER SLOWMODE TIMERS =====
   const activeSlowmodes = storage.cleanupExpiredSlowmodeTimers();
   const now = Date.now();
   for (const [channelId, timer] of Object.entries(activeSlowmodes)) {
@@ -196,6 +197,10 @@ client.once('ready', async () => {
       console.log(`[Slowmode] Recovered timer for channel ${channelId}, ${Math.round(remaining/1000)}s remaining`);
     }
   }
+
+  // ===== RECOVER MUTES =====
+  await recoverMutes(client, MOD_LOG_CHANNEL_ID);
+  console.log('[Mute] Recovery completed.');
 
   const giveaway = require('./giveaway');
   await giveaway.recoverGiveaways(client);
@@ -372,13 +377,12 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   // ===== STAFF CHECK FOR ALL COMMANDS =====
-  const staffCommands = ['testwelcome', 'purge', 'giveaway', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode'];
+  const staffCommands = ['testwelcome', 'purge', 'giveaway', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute'];
   if (staffCommands.includes(interaction.commandName)) {
     if (!isStaff(interaction.member)) {
       return await denyAccess(interaction);
     }
   }
-  // ========================================
 
   const { commandName } = interaction;
 
@@ -542,6 +546,81 @@ client.on('interactionCreate', async interaction => {
       });
     }
     return interaction.editReply({ content: `✅ Slowmode removed in <#${targetChannel.id}>.` });
+  }
+
+  // ==================== /mute ====================
+  if (commandName === 'mute') {
+    const targetUser = interaction.options.getUser('user');
+    const durationInput = interaction.options.getString('duration');
+    const reason = interaction.options.getString('reason');
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+    if (!member) {
+      return interaction.editReply('That user could not be found on this server.');
+    }
+
+    if (member.id === interaction.user.id) {
+      return interaction.editReply('You cannot mute yourself.');
+    }
+
+    if (member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+      return interaction.editReply('You cannot mute a member who has the "Manage Messages" permission.');
+    }
+
+    if (!member.moderatable) {
+      return interaction.editReply('I cannot mute this member. My role might be positioned below theirs, or they might be the server owner.');
+    }
+
+    if (isMuted(member)) {
+      return interaction.editReply(`${targetUser.tag} is already muted.`);
+    }
+
+    const durationMs = parseDuration(durationInput);
+    if (durationMs === null) {
+      return interaction.editReply('Invalid duration format. Use something like `60s`, `5m`, `1h`, `1d`, `7d`, or `forever`.');
+    }
+
+    try {
+      const result = await applyMute(member, interaction.user, durationMs, reason, MOD_LOG_CHANNEL_ID);
+      const durationText = durationMs === 'forever' ? 'permanently' : `for **${durationInput}**`;
+      const roleNote = result.type === 'role'
+        ? " (applied via the Muted role, since this exceeds Discord's 28-day timeout limit or is permanent)"
+        : '';
+
+      return interaction.editReply(
+        `🔇 ${targetUser.tag} has been muted ${durationText}${reason ? ` for: ${reason}` : ''}.${roleNote}`
+      );
+    } catch (err) {
+      console.warn(`Mute fehlgeschlagen fuer ${targetUser.tag}:`, err.message);
+      return interaction.editReply('Something went wrong while muting this member. Check my permissions.');
+    }
+  }
+
+  // ==================== /unmute ====================
+  if (commandName === 'unmute') {
+    const targetUser = interaction.options.getUser('user');
+    const reason = interaction.options.getString('reason');
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+    if (!member) {
+      return interaction.editReply('That user could not be found on this server.');
+    }
+
+    if (!isMuted(member)) {
+      return interaction.editReply(`${targetUser.tag} is not currently muted.`);
+    }
+
+    try {
+      await removeMute(member, interaction.user, reason, MOD_LOG_CHANNEL_ID);
+      return interaction.editReply(`🔊 ${targetUser.tag} has been unmuted${reason ? ` (${reason})` : ''}.`);
+    } catch (err) {
+      console.warn(`Unmute fehlgeschlagen fuer ${targetUser.tag}:`, err.message);
+      return interaction.editReply('Something went wrong while unmuting this member. Check my permissions.');
+    }
   }
 });
 
