@@ -269,10 +269,11 @@ client.on('interactionCreate', async interaction => {
 
     // ===== TICKET SYSTEM: Create Ticket =====
     if (interaction.customId === 'ticket_create') {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      // Quick reply first - channel creation might take time
+      await interaction.reply({ content: '🎫 Creating your ticket...', flags: MessageFlags.Ephemeral }).catch(() => null);
 
       if (storage.hasOpenTicket(interaction.user.id)) {
-        return interaction.editReply({ content: 'You already have an open ticket.' });
+        return interaction.editReply({ content: 'You already have an open ticket.' }).catch(() => null);
       }
 
       const ticketNumber = storage.getNextTicketNumber();
@@ -314,7 +315,7 @@ client.on('interactionCreate', async interaction => {
       if (!ticketChannel) {
         return interaction.editReply({
           content: 'Could not create the ticket channel. Check my "Manage Channels" permission and that the Category ID is valid (or remove TICKET_CATEGORY_ID from .env to create without category).'
-        });
+        }).catch(() => null);
       }
 
       storage.createTicket(ticketChannel.id, {
@@ -339,7 +340,7 @@ client.on('interactionCreate', async interaction => {
         await ticketChannel.send(`<@&${SUPPORT_ROLE_ID}> A new ticket has been created!`).catch(() => null);
       }
 
-      return interaction.editReply({ content: `Your ticket has been created: <#${ticketChannel.id}>` });
+      return interaction.editReply({ content: `Your ticket has been created: <#${ticketChannel.id}>` }).catch(() => null);
     }
 
     // ===== TICKET SYSTEM: Close Ticket =====
