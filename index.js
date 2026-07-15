@@ -313,7 +313,7 @@ client.on('interactionCreate', async interaction => {
 
       if (!ticketChannel) {
         return interaction.editReply({
-          content: 'Could not create the ticket channel. Check my "Manage Channels" permission.'
+          content: 'Could not create the ticket channel. Check my "Manage Channels" permission and that the Category ID is valid (or remove TICKET_CATEGORY_ID from .env to create without category).'
         });
       }
 
