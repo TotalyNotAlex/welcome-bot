@@ -10,6 +10,7 @@ const {
   buildTicketPanelEmbed,
   buildCreateTicketButtonRow,
   buildTicketWelcomeEmbed,
+  buildTicketUpdatedEmbed,
   buildReasonSelectRow,
   buildCloseButtonRow
 } = require('./tickets');
@@ -281,7 +282,6 @@ client.on('interactionCreate', async interaction => {
         permissionOverwrites: overwrites
       };
 
-      // Add parent (category) if TICKET_CATEGORY_ID is set
       if (TICKET_CATEGORY_ID) {
         channelOptions.parent = TICKET_CATEGORY_ID;
       }
@@ -348,7 +348,33 @@ client.on('interactionCreate', async interaction => {
     const reason = interaction.values[0];
     storage.updateTicket(interaction.channelId, { reason });
 
-    return interaction.reply({ content: `Ticket reason set to: **${reason}**`, flags: MessageFlags.Ephemeral });
+    // UPDATE the original welcome message instead of sending a new one
+    try {
+      // Fetch the last messages to find the bot's welcome message
+      const messages = await interaction.channel.messages.fetch({ limit: 10 });
+      const botMessage = messages.find(m => 
+        m.author.id === client.user.id && 
+        m.embeds.length > 0 &&
+        m.embeds[0].title &&
+        m.embeds[0].title.includes('Ticket #')
+      );
+
+      if (botMessage) {
+        const updatedEmbed = buildTicketUpdatedEmbed(ticket.userId, ticket.ticketNumber, reason);
+        await botMessage.edit({ 
+          content: `<@${ticket.userId}>`, 
+          embeds: [updatedEmbed], 
+          components: [buildCloseButtonRow()] 
+        });
+      }
+    } catch (err) {
+      console.warn('[Ticket] Could not update welcome message:', err.message);
+    }
+
+    return interaction.reply({ 
+      content: `✅ Reason set to: **${reason}**`, 
+      flags: MessageFlags.Ephemeral 
+    });
   }
 
   if (!interaction.isChatInputCommand()) return;
