@@ -11,6 +11,7 @@ const REMINDER_FILE = path.join(__dirname, 'reminder_status.json');
 // ===== TICKET SYSTEM FILES =====
 const TICKETS_FILE = path.join(__dirname, 'tickets.json');
 const TICKET_COUNTER_FILE = path.join(__dirname, 'ticket_counter.json');
+const SLOWMODE_TIMERS_FILE = path.join(__dirname, 'slowmode_timers.json');
 
 function loadJson(file) {
   if (!fs.existsSync(file)) return {};
@@ -228,6 +229,45 @@ function hasOpenTicket(userId) {
   return Object.values(data).some(t => t.userId === userId && !t.closed);
 }
 
+// --- Slowmode Timers: { channelId: { cooldown, endAt, guildId } }
+function saveSlowmodeTimer(channelId, cooldown, durationSeconds, guildId) {
+  const data = loadJson(SLOWMODE_TIMERS_FILE);
+  const endAt = Date.now() + (durationSeconds * 1000);
+  data[channelId] = { cooldown, endAt, guildId };
+  saveJson(SLOWMODE_TIMERS_FILE, data);
+}
+
+function getSlowmodeTimer(channelId) {
+  const data = loadJson(SLOWMODE_TIMERS_FILE);
+  return data[channelId] || null;
+}
+
+function getAllSlowmodeTimers() {
+  return loadJson(SLOWMODE_TIMERS_FILE);
+}
+
+function removeSlowmodeTimer(channelId) {
+  const data = loadJson(SLOWMODE_TIMERS_FILE);
+  delete data[channelId];
+  saveJson(SLOWMODE_TIMERS_FILE, data);
+}
+
+function cleanupExpiredSlowmodeTimers() {
+  const data = loadJson(SLOWMODE_TIMERS_FILE);
+  const now = Date.now();
+  let changed = false;
+  for (const [channelId, timer] of Object.entries(data)) {
+    if (timer.endAt <= now) {
+      delete data[channelId];
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveJson(SLOWMODE_TIMERS_FILE, data);
+  }
+  return data;
+}
+
 module.exports = {
   getVerified,
   setVerified,
@@ -252,6 +292,12 @@ module.exports = {
   getReactionRoleMessage,
   getAllReactionRoleMessages,
   deleteReactionRoleMessage,
+  // Slowmode timer exports
+  saveSlowmodeTimer,
+  getSlowmodeTimer,
+  getAllSlowmodeTimers,
+  removeSlowmodeTimer,
+  cleanupExpiredSlowmodeTimers,
   // Ticket system exports
   getNextTicketNumber,
   createTicket,

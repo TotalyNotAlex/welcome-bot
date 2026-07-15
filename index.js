@@ -45,6 +45,9 @@ const client = new Client({
 
 const activeReminderTimers = new Map();
 
+// ===== SLOWMODE TIMERS =====
+// Now stored in storage.js for persistence across restarts
+
 function isVerified(member) {
   return VERIFIED_ROLE_ID ? member.roles.cache.has(VERIFIED_ROLE_ID) : false;
 }
@@ -167,6 +170,23 @@ async function handleReactionRoleChange(reaction, user, action) {
 client.once('ready', async () => {
   console.log(`Welcome-Bot eingeloggt als ${client.user.tag}`);
 
+  // ===== RECOVER SLOWMODE TIMERS =====
+  const activeSlowmodes = storage.cleanupExpiredSlowmodeTimers();
+  const now = Date.now();
+  for (const [channelId, timer] of Object.entries(activeSlowmodes)) {
+    const remaining = timer.endAt - now;
+    if (remaining > 0) {
+      setTimeout(async () => {
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (channel) {
+          await channel.setRateLimitPerUser(0, 'Slowmode duration expired').catch(() => null);
+        }
+        storage.removeSlowmodeTimer(channelId);
+      }, remaining);
+      console.log(`[Slowmode] Recovered timer for channel ${channelId}, ${Math.round(remaining/1000)}s remaining`);
+    }
+  }
+
   const giveaway = require('./giveaway');
   await giveaway.recoverGiveaways(client);
 
@@ -262,11 +282,12 @@ client.on('interactionCreate', async interaction => {
         { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
           id: interaction.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+          deny: [PermissionFlagsBits.MentionEveryone, PermissionFlagsBits.MentionHere]
         },
         {
           id: client.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels]
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MentionEveryone]
         }
       ];
       if (SUPPORT_ROLE_ID) {
@@ -536,6 +557,70 @@ client.on('interactionCreate', async interaction => {
     }
 
     return interaction.editReply({ content: 'Ticket panel posted.' });
+  }
+
+  // ===== SLOWMODE COMMANDS =====
+  if (commandName === 'slowmode') {
+    const duration = interaction.options.getInteger('duration');
+    const cooldown = interaction.options.getInteger('cooldown');
+    const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const applied = await targetChannel
+      .setRateLimitPerUser(cooldown, `Slowmode set by ${interaction.user.tag}`)
+      .catch(() => null);
+
+    if (!applied) {
+      return interaction.editReply({
+        content: `Could not set slowmode in <#${targetChannel.id}>. Check that I have "Manage Channel" permission there.`
+      });
+    }
+
+    // Cancel previous timer for this channel
+    const existingTimer = storage.getSlowmodeTimer(targetChannel.id);
+    if (existingTimer) {
+      storage.removeSlowmodeTimer(targetChannel.id);
+    }
+
+    if (duration > 0) {
+      storage.saveSlowmodeTimer(targetChannel.id, cooldown, duration, interaction.guildId);
+      const timer = setTimeout(async () => {
+        await targetChannel.setRateLimitPerUser(0, 'Slowmode duration expired').catch(() => null);
+        storage.removeSlowmodeTimer(targetChannel.id);
+      }, duration * 1000);
+    }
+
+    return interaction.editReply({
+      content:
+        `🐌 Slowmode set to **${cooldown}s** in <#${targetChannel.id}>` +
+        (duration > 0
+          ? ` for the next **${duration}s**.`
+          : ` (no automatic end - use \`/unslowmode\` to remove it).`)
+    });
+  }
+
+  if (commandName === 'unslowmode') {
+    const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const existingTimer = storage.getSlowmodeTimer(targetChannel.id);
+    if (existingTimer) {
+      storage.removeSlowmodeTimer(targetChannel.id);
+    }
+
+    const applied = await targetChannel
+      .setRateLimitPerUser(0, `Slowmode removed by ${interaction.user.tag}`)
+      .catch(() => null);
+
+    if (!applied) {
+      return interaction.editReply({
+        content: `Could not remove slowmode in <#${targetChannel.id}>. Check that I have "Manage Channel" permission there.`
+      });
+    }
+
+    return interaction.editReply({ content: `✅ Slowmode removed in <#${targetChannel.id}>.` });
   }
 });
 

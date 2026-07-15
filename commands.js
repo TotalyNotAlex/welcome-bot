@@ -105,5 +105,48 @@ module.exports = [
     .setName('ticketsetup')
     .setDescription('Post the ticket creation panel in this channel')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .toJSON(),
+
+  // ===== SLOWMODE COMMANDS =====
+  new SlashCommandBuilder()
+    .setName('slowmode')
+    .setDescription('Enable slowmode in a channel')
+    .addIntegerOption(option =>
+      option
+        .setName('duration')
+        .setDescription('How long slowmode stays active, in seconds (0 = until manually disabled)')
+        .setRequired(true)
+        .setMinValue(0)
+        .setMaxValue(21600)
+    )
+    .addIntegerOption(option =>
+      option
+        .setName('cooldown')
+        .setDescription('Seconds users must wait between messages (1-21600)')
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(21600)
+    )
+    .addChannelOption(option =>
+      option
+        .setName('channel')
+        .setDescription('Channel to apply slowmode to (default: this channel)')
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        .setRequired(false)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName('unslowmode')
+    .setDescription('Disable slowmode in a channel')
+    .addChannelOption(option =>
+      option
+        .setName('channel')
+        .setDescription('Channel to remove slowmode from (default: this channel)')
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        .setRequired(false)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .toJSON()
 ];
