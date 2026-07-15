@@ -3,14 +3,13 @@ const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('disco
 module.exports = [
   new SlashCommandBuilder()
     .setName('testwelcome')
-    .setDescription('Sendet die Willkommensnachricht testweise erneut (nur für Admins/Mods)')
+    .setDescription('Sendet die Willkommensnachricht testweise erneut (nur fuer Staff)')
     .addUserOption(option =>
       option
         .setName('user')
-        .setDescription('Für wen die Testnachricht gebaut werden soll (Standard: du selbst)')
+        .setDescription('Fuer wen die Testnachricht gebaut werden soll (Standard: du selbst)')
         .setRequired(false)
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .toJSON(),
 
   new SlashCommandBuilder()
@@ -24,13 +23,11 @@ module.exports = [
         .setMinValue(1)
         .setMaxValue(100)
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .toJSON(),
 
   new SlashCommandBuilder()
     .setName('giveaway')
     .setDescription('Manage server giveaways')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(sub =>
       sub
         .setName('start')
@@ -97,17 +94,13 @@ module.exports = [
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setRequired(false)
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .toJSON(),
 
-  // ===== TICKET SYSTEM COMMAND =====
   new SlashCommandBuilder()
     .setName('ticketsetup')
     .setDescription('Post the ticket creation panel in this channel')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .toJSON(),
 
-  // ===== SLOWMODE COMMANDS =====
   new SlashCommandBuilder()
     .setName('slowmode')
     .setDescription('Enable slowmode in a channel')
@@ -134,7 +127,6 @@ module.exports = [
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setRequired(false)
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .toJSON(),
 
   new SlashCommandBuilder()
@@ -147,6 +139,5 @@ module.exports = [
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setRequired(false)
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .toJSON()
 ];
