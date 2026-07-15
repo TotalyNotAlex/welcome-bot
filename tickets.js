@@ -34,13 +34,14 @@ function buildTicketWelcomeEmbed(userId, ticketNumber) {
     .setTimestamp();
 }
 
-// Updated embed after reason is selected
 function buildTicketUpdatedEmbed(userId, ticketNumber, reason) {
   const reasonEmojis = {
+    'Support': '🆘',
+    'Report': '📝',
+    'Question': '❓',
+    'Application': '💼',
     'bounty-update-request': '💰',
-    'bad-member-behavior-report': '😡',
-    'suggestions': '🤔',
-    'Application': '💼'
+    'suggestions': '🤔'
   };
 
   const emoji = reasonEmojis[reason] || '📋';
@@ -66,10 +67,12 @@ function buildReasonSelectRow() {
     .setCustomId('ticket_reason_select')
     .setPlaceholder('Select a reason for this ticket')
     .addOptions(
+      { label: 'Support', value: 'Support', emoji: '🆘' },
+      { label: 'Report', value: 'Report', emoji: '📝' },
+      { label: 'Question', value: 'Question', emoji: '❓' },
+      { label: 'Application', value: 'Application', emoji: '💼' },
       { label: 'bounty-update-request', value: 'bounty-update-request', emoji: '💰' },
-      { label: 'bad-member-behavior-report', value: 'bad-member-behavior-report', emoji: '😡' },
-      { label: 'suggestions', value: 'suggestions', emoji: '🤔' },
-      { label: 'Application', value: 'Application', emoji: '💼' }
+      { label: 'suggestions', value: 'suggestions', emoji: '🤔' }
     );
 
   return new ActionRowBuilder().addComponents(select);

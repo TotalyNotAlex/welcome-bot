@@ -313,6 +313,11 @@ client.on('interactionCreate', async interaction => {
         .send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [reasonRow, closeRow] })
         .catch(() => null);
 
+      // Ping support team
+      if (SUPPORT_ROLE_ID) {
+        await ticketChannel.send(`<@&${SUPPORT_ROLE_ID}> A new ticket has been created!`).catch(() => null);
+      }
+
       return interaction.editReply({ content: `Your ticket has been created: <#${ticketChannel.id}>` });
     }
 
