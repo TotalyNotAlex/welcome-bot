@@ -8,6 +8,10 @@ const REACTION_ROLES_FILE = path.join(__dirname, 'reaction_roles.json');
 const GREETED_FILE = path.join(__dirname, 'greeted_users.json');
 const REMINDER_FILE = path.join(__dirname, 'reminder_status.json');
 
+// ===== TICKET SYSTEM FILES =====
+const TICKETS_FILE = path.join(__dirname, 'tickets.json');
+const TICKET_COUNTER_FILE = path.join(__dirname, 'ticket_counter.json');
+
 function loadJson(file) {
   if (!fs.existsSync(file)) return {};
   try {
@@ -69,13 +73,13 @@ function getAllPendingReminders() {
   const data = loadJson(PENDING_FILE);
   const now = Date.now();
   const reminders = [];
-  
+
   for (const [userId, entry] of Object.entries(data)) {
     if (entry.reminderAt && entry.reminderAt <= now) {
       reminders.push({ userId, ...entry });
     }
   }
-  
+
   return reminders;
 }
 
@@ -184,6 +188,46 @@ function deleteReactionRoleMessage(messageId) {
   saveJson(REACTION_ROLES_FILE, store);
 }
 
+// ===== TICKET SYSTEM FUNCTIONS =====
+// Tickets: { channelId: { userId, guildId, ticketNumber, reason, closed, createdAt } }
+
+function getNextTicketNumber() {
+  const data = loadJson(TICKET_COUNTER_FILE);
+  const next = (data.count || 0) + 1;
+  saveJson(TICKET_COUNTER_FILE, { count: next });
+  return next;
+}
+
+function createTicket(channelId, ticketData) {
+  const data = loadJson(TICKETS_FILE);
+  data[channelId] = ticketData;
+  saveJson(TICKETS_FILE, data);
+}
+
+function getTicket(channelId) {
+  const data = loadJson(TICKETS_FILE);
+  return data[channelId] || null;
+}
+
+function updateTicket(channelId, updates) {
+  const data = loadJson(TICKETS_FILE);
+  if (!data[channelId]) return null;
+  data[channelId] = { ...data[channelId], ...updates };
+  saveJson(TICKETS_FILE, data);
+  return data[channelId];
+}
+
+function deleteTicket(channelId) {
+  const data = loadJson(TICKETS_FILE);
+  delete data[channelId];
+  saveJson(TICKETS_FILE, data);
+}
+
+function hasOpenTicket(userId) {
+  const data = loadJson(TICKETS_FILE);
+  return Object.values(data).some(t => t.userId === userId && !t.closed);
+}
+
 module.exports = {
   getVerified,
   setVerified,
@@ -207,5 +251,12 @@ module.exports = {
   saveReactionRoleMessage,
   getReactionRoleMessage,
   getAllReactionRoleMessages,
-  deleteReactionRoleMessage
+  deleteReactionRoleMessage,
+  // Ticket system exports
+  getNextTicketNumber,
+  createTicket,
+  getTicket,
+  updateTicket,
+  deleteTicket,
+  hasOpenTicket
 };

@@ -98,5 +98,12 @@ module.exports = [
         .setRequired(false)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+    .toJSON(),
+
+  // ===== TICKET SYSTEM COMMAND =====
+  new SlashCommandBuilder()
+    .setName('ticketsetup')
+    .setDescription('Post the ticket creation panel in this channel')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .toJSON()
 ];

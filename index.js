@@ -1,8 +1,18 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials, ChannelType } = require('discord.js');
 const storage = require('./storage');
 const { buildWelcomeMessage, buildReminderMessage } = require('./welcome-message');
 const { getConfiguredRoles, buildReactionRolesEmbed } = require('./reactionroles');
+
+// ===== TICKET SYSTEM IMPORTS =====
+const {
+  formatTicketName,
+  buildTicketPanelEmbed,
+  buildCreateTicketButtonRow,
+  buildTicketWelcomeEmbed,
+  buildReasonSelectRow,
+  buildCloseButtonRow
+} = require('./tickets');
 
 const {
   DISCORD_TOKEN,
@@ -13,7 +23,9 @@ const {
   UNVERIFIED_ROLE_ID,
   REMINDER_MINUTES,
   REMINDER_DM_ENABLED,
-  REMINDER_CHANNEL_FALLBACK
+  REMINDER_CHANNEL_FALLBACK,
+  SUPPORT_ROLE_ID,
+  TICKET_CATEGORY_ID
 } = process.env;
 
 const reminderMs = (Number(REMINDER_MINUTES) || 10) * 60 * 1000;
@@ -200,39 +212,143 @@ client.on('messageReactionRemove', (reaction, user) => handleReactionRoleChange(
 client.on('interactionCreate', async interaction => {
   // ==================== BUTTON HANDLER ====================
   if (interaction.isButton()) {
+    // --- Giveaway Entry ---
     if (interaction.customId.startsWith('giveaway_enter_')) {
       const messageId = interaction.customId.replace('giveaway_enter_', '');
-      
+
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      
+
       const giveaway = storage.getGiveaway(messageId);
-      
+
       if (!giveaway) {
         return interaction.editReply({ content: 'This giveaway no longer exists.' });
       }
-      
+
       if (giveaway.ended) {
         return interaction.editReply({ content: 'This giveaway has already ended.' });
       }
-      
+
       if (giveaway.participants.includes(interaction.user.id)) {
         return interaction.editReply({ content: 'You have already entered this giveaway!' });
       }
-      
+
       storage.addParticipant(messageId, interaction.user.id);
-      
+
       const updatedGiveaway = storage.getGiveaway(messageId);
       const { buildGiveawayEmbed, buildGiveawayButtonRow } = require('./giveaway');
       const embed = buildGiveawayEmbed(updatedGiveaway);
       const row = buildGiveawayButtonRow(messageId, false);
-      
+
       await interaction.message.edit({ embeds: [embed], components: [row] }).catch(err => {
         console.error('[Giveaway] Failed to update message:', err.message);
       });
-      
+
       return interaction.editReply({ content: '🎉 You have successfully entered the giveaway!' });
     }
+
+    // ===== TICKET SYSTEM: Create Ticket =====
+    if (interaction.customId === 'ticket_create') {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      if (storage.hasOpenTicket(interaction.user.id)) {
+        return interaction.editReply({ content: 'You already have an open ticket.' });
+      }
+
+      const ticketNumber = storage.getNextTicketNumber();
+      const channelName = formatTicketName(ticketNumber);
+
+      const overwrites = [
+        { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+          id: interaction.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+        },
+        {
+          id: client.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels]
+        }
+      ];
+      if (SUPPORT_ROLE_ID) {
+        overwrites.push({
+          id: SUPPORT_ROLE_ID,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+        });
+      }
+
+      const channelOptions = {
+        name: channelName,
+        type: ChannelType.GuildText,
+        permissionOverwrites: overwrites
+      };
+
+      // Add parent (category) if TICKET_CATEGORY_ID is set
+      if (TICKET_CATEGORY_ID) {
+        channelOptions.parent = TICKET_CATEGORY_ID;
+      }
+
+      const ticketChannel = await interaction.guild.channels
+        .create(channelOptions)
+        .catch(() => null);
+
+      if (!ticketChannel) {
+        return interaction.editReply({
+          content: 'Could not create the ticket channel. Check my "Manage Channels" permission.'
+        });
+      }
+
+      storage.createTicket(ticketChannel.id, {
+        userId: interaction.user.id,
+        guildId: interaction.guildId,
+        ticketNumber,
+        reason: null,
+        closed: false,
+        createdAt: new Date().toISOString()
+      });
+
+      const welcomeEmbed = buildTicketWelcomeEmbed(interaction.user.id, ticketNumber);
+      const reasonRow = buildReasonSelectRow();
+      const closeRow = buildCloseButtonRow();
+
+      await ticketChannel
+        .send({ content: `<@${interaction.user.id}>`, embeds: [welcomeEmbed], components: [reasonRow, closeRow] })
+        .catch(() => null);
+
+      return interaction.editReply({ content: `Your ticket has been created: <#${ticketChannel.id}>` });
+    }
+
+    // ===== TICKET SYSTEM: Close Ticket =====
+    if (interaction.customId === 'ticket_close') {
+      const ticket = storage.getTicket(interaction.channelId);
+      if (!ticket) {
+        return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral });
+      }
+
+      storage.updateTicket(interaction.channelId, { closed: true });
+      await interaction.reply('🔒 This ticket will be deleted in 5 seconds...');
+
+      setTimeout(async () => {
+        const channel = await client.channels.fetch(interaction.channelId).catch(() => null);
+        if (channel) await channel.delete().catch(() => null);
+        storage.deleteTicket(interaction.channelId);
+      }, 5000);
+
+      return;
+    }
+
     return;
+  }
+
+  // ===== TICKET SYSTEM: Reason Select Menu =====
+  if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_reason_select') {
+    const ticket = storage.getTicket(interaction.channelId);
+    if (!ticket) {
+      return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral });
+    }
+
+    const reason = interaction.values[0];
+    storage.updateTicket(interaction.channelId, { reason });
+
+    return interaction.reply({ content: `Ticket reason set to: **${reason}**`, flags: MessageFlags.Ephemeral });
   }
 
   if (!interaction.isChatInputCommand()) return;
@@ -374,6 +490,21 @@ client.on('interactionCreate', async interaction => {
     }
 
     return interaction.editReply(`✅ Reaction-roles message posted in <#${targetChannel.id}>.`);
+  }
+
+  // ===== TICKET SYSTEM: /ticketsetup =====
+  if (commandName === 'ticketsetup') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const embed = buildTicketPanelEmbed();
+    const row = buildCreateTicketButtonRow();
+    const sent = await interaction.channel.send({ embeds: [embed], components: [row] }).catch(() => null);
+
+    if (!sent) {
+      return interaction.editReply({ content: 'Could not post the ticket panel here. Check my permissions.' });
+    }
+
+    return interaction.editReply({ content: 'Ticket panel posted.' });
   }
 });
 
