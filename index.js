@@ -68,12 +68,19 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.MessageContent
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
 });
 
 const activeReminderTimers = new Map();
+
+// ═══════════════════════════════════════════════════════
+// AFK System — In-Memory Storage
+// ═══════════════════════════════════════════════════════
+const afkUsers = new Map();
+// Map<userId, { reason: string, since: timestamp }>
 
 function isVerified(member) {
   return VERIFIED_ROLE_ID ? member.roles.cache.has(VERIFIED_ROLE_ID) : false;
@@ -296,6 +303,44 @@ client.on('guildMemberRemove', async member => {
 client.on('messageReactionAdd', (reaction, user) => handleReactionRoleChange(reaction, user, 'add'));
 client.on('messageReactionRemove', (reaction, user) => handleReactionRoleChange(reaction, user, 'remove'));
 
+// ═══════════════════════════════════════════════════════
+// AFK: Auto-remove when user sends a message
+// ═══════════════════════════════════════════════════════
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+  if (!message.guild) return;
+
+  // Check if user was AFK and remove status
+  if (afkUsers.has(message.author.id)) {
+    afkUsers.delete(message.author.id);
+    console.log(`[AFK] ${message.author.tag} is back — AFK removed`);
+    // Optional: Send a brief confirmation (can be disabled to avoid spam)
+    // await message.react('👋').catch(() => {});
+  }
+
+  // Check if message mentions any AFK users
+  if (message.mentions.users.size > 0) {
+    for (const [userId, mentionedUser] of message.mentions.users) {
+      if (afkUsers.has(userId)) {
+        const afkData = afkUsers.get(userId);
+        const afkEmbed = new EmbedBuilder()
+          .setDescription(
+            `💤 **${mentionedUser.username} is currently AFK**\n\n` +
+            `📝 **Reason:** ${afkData.reason}\n` +
+            `⏰ **Since:** <t:${Math.floor(afkData.since / 1000)}:R>\n\n` +
+            `> *He'll reply once he's back — try again later!*`
+          )
+          .setColor(10070709)
+          .setFooter({
+            text: `AFK Status • Auto-removed when ${mentionedUser.username} sends a message`
+          });
+
+        await message.reply({ embeds: [afkEmbed], allowedMentions: { repliedUser: false } }).catch(() => {});
+      }
+    }
+  }
+});
+
 client.on('interactionCreate', async interaction => {
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('giveaway_enter_')) {
@@ -444,6 +489,22 @@ client.on('interactionCreate', async interaction => {
   }
 
   const { commandName } = interaction;
+
+  // ═══════════════════════════════════════════════════════
+  // /afk Command
+  // ═══════════════════════════════════════════════════════
+  if (commandName === 'afk') {
+    const reason = interaction.options.getString('reason') || 'AFK';
+    afkUsers.set(interaction.user.id, {
+      reason: reason,
+      since: Date.now()
+    });
+    console.log(`[AFK] ${interaction.user.tag} set AFK: ${reason}`);
+    return interaction.reply({
+      content: `💤 **You are now AFK:** ${reason}\n> I'll let others know when they ping you!`,
+      flags: MessageFlags.Ephemeral
+    });
+  }
 
   if (commandName === 'testwelcome') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -848,7 +909,6 @@ client.on('interactionCreate', async interaction => {
     try {
       const embedData = JSON.parse(jsonInput);
 
-      // Validate required fields
       if (!embedData.title && !embedData.description) {
         return interaction.editReply({
           content: '❌ Your JSON must contain at least a `title` or `description` field.'
@@ -860,7 +920,6 @@ client.on('interactionCreate', async interaction => {
       await targetChannel.send({ embeds: [embed] });
       return interaction.editReply(`✅ Embed posted in <#${targetChannel.id}>.`);
     } catch (err) {
-      // JSON parse error or EmbedBuilder validation error
       return interaction.editReply({
         content: `❌ Invalid JSON or Embed data: ${err.message}`
       });

@@ -386,5 +386,19 @@ module.exports = [
         .setDescription('Paste your embed JSON here')
         .setRequired(true)
     )
+    .toJSON(),
+
+  // ═══════════════════════════════════════════════════════
+  // /afk Command
+  // ═══════════════════════════════════════════════════════
+  new SlashCommandBuilder()
+    .setName('afk')
+    .setDescription('Set your AFK status — I will let others know when they ping you')
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Why are you AFK? (e.g. eating, sleeping, working)')
+        .setRequired(false)
+    )
     .toJSON()
 ];
