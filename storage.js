@@ -1,271 +1,223 @@
-const fs = require('fs');
-const path = require('path');
+const {
+  Verified, Pending, Giveaway, ReactionRole,
+  Greeted, Reminder, Ticket, Counter, Slowmode
+} = require('./models');
 
-const DB_FILE = path.join(__dirname, 'verified_users.json');
-const PENDING_FILE = path.join(__dirname, 'pending_codes.json');
-const GIVEAWAYS_FILE = path.join(__dirname, 'giveaways.json');
-const REACTION_ROLES_FILE = path.join(__dirname, 'reaction_roles.json');
-const GREETED_FILE = path.join(__dirname, 'greeted_users.json');
-const REMINDER_FILE = path.join(__dirname, 'reminder_status.json');
-
-// ===== TICKET SYSTEM FILES =====
-const TICKETS_FILE = path.join(__dirname, 'tickets.json');
-const TICKET_COUNTER_FILE = path.join(__dirname, 'ticket_counter.json');
-const SLOWMODE_TIMERS_FILE = path.join(__dirname, 'slowmode_timers.json');
-
-function loadJson(file) {
-  if (!fs.existsSync(file)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return {};
-  }
+// --- Verified Users ---
+async function getVerified(discordId) {
+  const doc = await Verified.findOne({ discordId }).lean();
+  return doc || null;
 }
 
-function saveJson(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+async function setVerified(discordId, robloxId, robloxUsername) {
+  await Verified.findOneAndUpdate(
+    { discordId },
+    { robloxId, robloxUsername, verifiedAt: new Date() },
+    { upsert: true }
+  );
 }
 
-// --- Dauerhaft verifizierte User: { discordId: { robloxId, robloxUsername, verifiedAt } }
-function getVerified(discordId) {
-  const data = loadJson(DB_FILE);
-  return data[discordId] || null;
+async function removeVerified(discordId) {
+  await Verified.deleteOne({ discordId });
 }
 
-function setVerified(discordId, robloxId, robloxUsername) {
-  const data = loadJson(DB_FILE);
-  data[discordId] = {
-    robloxId,
-    robloxUsername,
-    verifiedAt: new Date().toISOString()
-  };
-  saveJson(DB_FILE, data);
+// --- Pending Codes ---
+async function getPending(discordId) {
+  const doc = await Pending.findOne({ discordId }).lean();
+  return doc || null;
 }
 
-function removeVerified(discordId) {
-  const data = loadJson(DB_FILE);
-  delete data[discordId];
-  saveJson(DB_FILE, data);
+async function setPending(discordId, code, robloxUsername) {
+  await Pending.findOneAndUpdate(
+    { discordId },
+    { code, robloxUsername, createdAt: new Date() },
+    { upsert: true }
+  );
 }
 
-// --- Ausstehende Verifizierungscodes: { discordId: { code, robloxUsername, createdAt, reminderAt } }
-function getPending(discordId) {
-  const data = loadJson(PENDING_FILE);
-  return data[discordId] || null;
+async function removePending(discordId) {
+  await Pending.deleteOne({ discordId });
 }
 
-function setPending(discordId, code, robloxUsername) {
-  const data = loadJson(PENDING_FILE);
-  data[discordId] = {
-    code,
-    robloxUsername,
-    createdAt: new Date().toISOString()
-  };
-  saveJson(PENDING_FILE, data);
-}
-
-function removePending(discordId) {
-  const data = loadJson(PENDING_FILE);
-  delete data[discordId];
-  saveJson(PENDING_FILE, data);
-}
-
-function getAllPendingReminders() {
-  const data = loadJson(PENDING_FILE);
+async function getAllPendingReminders() {
   const now = Date.now();
-  const reminders = [];
-
-  for (const [userId, entry] of Object.entries(data)) {
-    if (entry.reminderAt && entry.reminderAt <= now) {
-      reminders.push({ userId, ...entry });
-    }
-  }
-
-  return reminders;
+  const docs = await Pending.find({ reminderAt: { $lte: now } }).lean();
+  return docs.map(d => ({ userId: d.discordId, ...d }));
 }
 
-// --- Begrüßte User: verhindert doppeltes Pingen bei Rejoin ---
-function hasBeenGreeted(discordId) {
-  const data = loadJson(GREETED_FILE);
-  return Boolean(data[discordId]);
+// --- Greeted Users ---
+async function hasBeenGreeted(discordId) {
+  const doc = await Greeted.findOne({ discordId }).lean();
+  return Boolean(doc);
 }
 
-function markGreeted(discordId) {
-  const data = loadJson(GREETED_FILE);
-  data[discordId] = { greetedAt: new Date().toISOString() };
-  saveJson(GREETED_FILE, data);
+async function markGreeted(discordId) {
+  await Greeted.findOneAndUpdate(
+    { discordId },
+    { greetedAt: new Date() },
+    { upsert: true }
+  );
 }
 
-// --- Erinnerungsstatus: { discordId: { joinedAt, reminded } }
-function getReminderStatus(discordId) {
-  const data = loadJson(REMINDER_FILE);
-  return data[discordId] || null;
+// --- Reminder Status ---
+async function getReminderStatus(discordId) {
+  const doc = await Reminder.findOne({ discordId }).lean();
+  return doc || null;
 }
 
-function setJoinedAt(discordId, joinedAt) {
-  const data = loadJson(REMINDER_FILE);
-  if (!data[discordId]) {
-    data[discordId] = { joinedAt, reminded: false };
-    saveJson(REMINDER_FILE, data);
+async function setJoinedAt(discordId, joinedAt) {
+  const exists = await Reminder.findOne({ discordId });
+  if (!exists) {
+    await Reminder.create({ discordId, joinedAt: new Date(joinedAt), reminded: false });
   }
 }
 
-function markReminded(discordId) {
-  const data = loadJson(REMINDER_FILE);
-  if (!data[discordId]) {
-    data[discordId] = { joinedAt: new Date().toISOString(), reminded: true };
-  } else {
-    data[discordId].reminded = true;
-  }
-  saveJson(REMINDER_FILE, data);
+async function markReminded(discordId) {
+  await Reminder.findOneAndUpdate(
+    { discordId },
+    { reminded: true },
+    { upsert: true }
+  );
 }
 
-function clearReminderStatus(discordId) {
-  const data = loadJson(REMINDER_FILE);
-  delete data[discordId];
-  saveJson(REMINDER_FILE, data);
+async function clearReminderStatus(discordId) {
+  await Reminder.deleteOne({ discordId });
 }
 
-// --- Giveaways: { messageId: { prize, channelId, guildId, hostId, winnersCount,
-//                                endsAt, participants: [discordId], ended, winners: [discordId] } }
-function getGiveaway(messageId) {
-  const data = loadJson(GIVEAWAYS_FILE);
-  return data[messageId] || null;
+// --- Giveaways ---
+async function getGiveaway(messageId) {
+  const doc = await Giveaway.findOne({ messageId }).lean();
+  return doc || null;
 }
 
-function getAllGiveaways() {
-  return loadJson(GIVEAWAYS_FILE);
+async function getAllGiveaways() {
+  return await Giveaway.find().lean();
 }
 
-function getActiveGiveaways(guildId = null) {
-  const data = loadJson(GIVEAWAYS_FILE);
-  return Object.values(data)
-    .filter(g => !g.ended && (!guildId || g.guildId === guildId));
+async function getActiveGiveaways(guildId = null) {
+  const query = { ended: false };
+  if (guildId) query.guildId = guildId;
+  return await Giveaway.find(query).lean();
 }
 
-function createGiveaway(messageId, giveawayData) {
-  const data = loadJson(GIVEAWAYS_FILE);
-  data[messageId] = { ...giveawayData, participants: [], ended: false, winners: [] };
-  saveJson(GIVEAWAYS_FILE, data);
+async function createGiveaway(messageId, giveawayData) {
+  await Giveaway.create({
+    messageId,
+    ...giveawayData,
+    participants: [],
+    ended: false,
+    winners: []
+  });
 }
 
-function updateGiveaway(messageId, updates) {
-  const data = loadJson(GIVEAWAYS_FILE);
-  if (!data[messageId]) return null;
-  data[messageId] = { ...data[messageId], ...updates };
-  saveJson(GIVEAWAYS_FILE, data);
-  return data[messageId];
+async function updateGiveaway(messageId, updates) {
+  const doc = await Giveaway.findOneAndUpdate(
+    { messageId },
+    updates,
+    { new: true }
+  ).lean();
+  return doc;
 }
 
-function addParticipant(messageId, discordId) {
-  const data = loadJson(GIVEAWAYS_FILE);
-  const giveaway = data[messageId];
-  if (!giveaway) return null;
-  if (giveaway.participants.includes(discordId)) return giveaway;
-  giveaway.participants.push(discordId);
-  saveJson(GIVEAWAYS_FILE, data);
-  return giveaway;
+async function addParticipant(messageId, discordId) {
+  const doc = await Giveaway.findOne({ messageId });
+  if (!doc) return null;
+  if (doc.participants.includes(discordId)) return doc;
+  doc.participants.push(discordId);
+  await doc.save();
+  return doc;
 }
 
-// --- Reaction Roles: { messageId: { channelId, guildId, roles: { emoji: roleId } } }
-function saveReactionRoleMessage(messageId, data) {
-  const store = loadJson(REACTION_ROLES_FILE);
-  store[messageId] = data;
-  saveJson(REACTION_ROLES_FILE, store);
+// --- Reaction Roles ---
+async function saveReactionRoleMessage(messageId, data) {
+  await ReactionRole.findOneAndUpdate(
+    { messageId },
+    data,
+    { upsert: true }
+  );
 }
 
-function getReactionRoleMessage(messageId) {
-  const store = loadJson(REACTION_ROLES_FILE);
-  return store[messageId] || null;
+async function getReactionRoleMessage(messageId) {
+  const doc = await ReactionRole.findOne({ messageId }).lean();
+  return doc || null;
 }
 
-function getAllReactionRoleMessages() {
-  return loadJson(REACTION_ROLES_FILE);
+async function getAllReactionRoleMessages() {
+  return await ReactionRole.find().lean();
 }
 
-function deleteReactionRoleMessage(messageId) {
-  const store = loadJson(REACTION_ROLES_FILE);
-  delete store[messageId];
-  saveJson(REACTION_ROLES_FILE, store);
+async function deleteReactionRoleMessage(messageId) {
+  await ReactionRole.deleteOne({ messageId });
 }
 
-// ===== TICKET SYSTEM FUNCTIONS =====
-// Tickets: { channelId: { userId, guildId, ticketNumber, reason, closed, createdAt } }
-
-function getNextTicketNumber() {
-  const data = loadJson(TICKET_COUNTER_FILE);
-  const next = (data.count || 0) + 1;
-  saveJson(TICKET_COUNTER_FILE, { count: next });
-  return next;
+// --- Tickets ---
+async function getNextTicketNumber() {
+  const counter = await Counter.findOneAndUpdate(
+    { _id: 'ticketCounter' },
+    { $inc: { count: 1 } },
+    { upsert: true, new: true }
+  );
+  return counter.count;
 }
 
-function createTicket(channelId, ticketData) {
-  const data = loadJson(TICKETS_FILE);
-  data[channelId] = ticketData;
-  saveJson(TICKETS_FILE, data);
+async function createTicket(channelId, ticketData) {
+  await Ticket.findOneAndUpdate(
+    { channelId },
+    ticketData,
+    { upsert: true }
+  );
 }
 
-function getTicket(channelId) {
-  const data = loadJson(TICKETS_FILE);
-  return data[channelId] || null;
+async function getTicket(channelId) {
+  const doc = await Ticket.findOne({ channelId }).lean();
+  return doc || null;
 }
 
-function updateTicket(channelId, updates) {
-  const data = loadJson(TICKETS_FILE);
-  if (!data[channelId]) return null;
-  data[channelId] = { ...data[channelId], ...updates };
-  saveJson(TICKETS_FILE, data);
-  return data[channelId];
+async function updateTicket(channelId, updates) {
+  const doc = await Ticket.findOneAndUpdate(
+    { channelId },
+    updates,
+    { new: true }
+  ).lean();
+  return doc;
 }
 
-function deleteTicket(channelId) {
-  const data = loadJson(TICKETS_FILE);
-  delete data[channelId];
-  saveJson(TICKETS_FILE, data);
+async function deleteTicket(channelId) {
+  await Ticket.deleteOne({ channelId });
 }
 
-function hasOpenTicket(userId) {
-  const data = loadJson(TICKETS_FILE);
-  return Object.values(data).some(t => t.userId === userId && !t.closed);
+async function hasOpenTicket(userId) {
+  const doc = await Ticket.findOne({ userId, closed: false }).lean();
+  return Boolean(doc);
 }
 
-// --- Slowmode Timers: { channelId: { cooldown, endAt, guildId } }
-function saveSlowmodeTimer(channelId, cooldown, durationSeconds, guildId) {
-  const data = loadJson(SLOWMODE_TIMERS_FILE);
+// --- Slowmode Timers ---
+async function saveSlowmodeTimer(channelId, cooldown, durationSeconds, guildId) {
   const endAt = Date.now() + (durationSeconds * 1000);
-  data[channelId] = { cooldown, endAt, guildId };
-  saveJson(SLOWMODE_TIMERS_FILE, data);
+  await Slowmode.findOneAndUpdate(
+    { channelId },
+    { cooldown, endAt, guildId },
+    { upsert: true }
+  );
 }
 
-function getSlowmodeTimer(channelId) {
-  const data = loadJson(SLOWMODE_TIMERS_FILE);
-  return data[channelId] || null;
+async function getSlowmodeTimer(channelId) {
+  const doc = await Slowmode.findOne({ channelId }).lean();
+  return doc || null;
 }
 
-function getAllSlowmodeTimers() {
-  return loadJson(SLOWMODE_TIMERS_FILE);
+async function getAllSlowmodeTimers() {
+  return await Slowmode.find().lean();
 }
 
-function removeSlowmodeTimer(channelId) {
-  const data = loadJson(SLOWMODE_TIMERS_FILE);
-  delete data[channelId];
-  saveJson(SLOWMODE_TIMERS_FILE, data);
+async function removeSlowmodeTimer(channelId) {
+  await Slowmode.deleteOne({ channelId });
 }
 
-function cleanupExpiredSlowmodeTimers() {
-  const data = loadJson(SLOWMODE_TIMERS_FILE);
+async function cleanupExpiredSlowmodeTimers() {
   const now = Date.now();
-  let changed = false;
-  for (const [channelId, timer] of Object.entries(data)) {
-    if (timer.endAt <= now) {
-      delete data[channelId];
-      changed = true;
-    }
-  }
-  if (changed) {
-    saveJson(SLOWMODE_TIMERS_FILE, data);
-  }
-  return data;
+  await Slowmode.deleteMany({ endAt: { $lte: now } });
+  return await getAllSlowmodeTimers();
 }
 
 module.exports = {
@@ -292,13 +244,11 @@ module.exports = {
   getReactionRoleMessage,
   getAllReactionRoleMessages,
   deleteReactionRoleMessage,
-  // Slowmode timer exports
   saveSlowmodeTimer,
   getSlowmodeTimer,
   getAllSlowmodeTimers,
   removeSlowmodeTimer,
   cleanupExpiredSlowmodeTimers,
-  // Ticket system exports
   getNextTicketNumber,
   createTicket,
   getTicket,

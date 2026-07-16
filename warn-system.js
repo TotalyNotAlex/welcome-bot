@@ -1,43 +1,5 @@
-const fs = require('fs');
-const path = require('path');
-const { EmbedBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
-
-const WARNINGS_FILE = path.join(__dirname, 'warnings.json');
-const POLLS_FILE = path.join(__dirname, 'polls.json');
-
-// --------------------------------------------------------------------------
-// Storage Helpers
-// --------------------------------------------------------------------------
-
-function loadWarnings() {
-  if (!fs.existsSync(WARNINGS_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(WARNINGS_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-function saveWarnings(data) {
-  fs.writeFileSync(WARNINGS_FILE, JSON.stringify(data, null, 2), 'utf8');
-}
-
-function loadPolls() {
-  if (!fs.existsSync(POLLS_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(POLLS_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-function savePolls(data) {
-  fs.writeFileSync(POLLS_FILE, JSON.stringify(data, null, 2), 'utf8');
-}
-
-// --------------------------------------------------------------------------
-// Auto-Timeout Escalation
-// --------------------------------------------------------------------------
+const { EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { Warn, Poll } = require('./models');
 
 const ESCALATION = {
   3: { ms: 10 * 60 * 1000, text: '10 minutes' },
@@ -56,62 +18,60 @@ function getTimeoutForWarnCount(count) {
   return null;
 }
 
-// --------------------------------------------------------------------------
-// Mod-Log
-// --------------------------------------------------------------------------
-
 async function logModAction(guild, action, user, moderator, reason, extra, modLogChannelId) {
   if (!modLogChannelId) return;
   const channel = await guild.channels.fetch(modLogChannelId).catch(() => null);
   if (!channel) return;
 
+  const titles = {
+    warn: '⚠️ Member Warned',
+    clearwarns: '🗑️ Warnings Cleared',
+    autotimeout: '🔇 Auto-Timeout Applied',
+    unmute: '🔊 Member Unmuted'
+  };
+  const colors = {
+    warn: 0xffaa00,
+    clearwarns: 0x55aaff,
+    autotimeout: 0xff5555,
+    unmute: 0x55ff88
+  };
+
   const embed = new EmbedBuilder()
-    .setTitle(action === 'warn' ? '⚠️ Member Warned' : 
-               action === 'clearwarns' ? '🗑️ Warnings Cleared' :
-               action === 'autotimeout' ? '🔇 Auto-Timeout Applied' : '🔊 Member Unmuted')
+    .setTitle(titles[action] || 'Mod Action')
     .addFields(
       { name: 'User', value: `<@${user.id}> (${user.tag})`, inline: true },
       { name: 'Moderator', value: `<@${moderator.id}>`, inline: true }
     )
-    .setColor(action === 'warn' ? 0xffaa00 : action === 'clearwarns' ? 0x55aaff : action === 'autotimeout' ? 0xff5555 : 0x55ff88)
+    .setColor(colors[action] || 0x5865f2)
     .setTimestamp();
 
-  if (extra) {
-    embed.addFields({ name: 'Details', value: extra, inline: true });
-  }
-  if (reason) {
-    embed.addFields({ name: 'Reason', value: reason });
-  }
+  if (extra) embed.addFields({ name: 'Details', value: extra, inline: true });
+  if (reason) embed.addFields({ name: 'Reason', value: reason });
 
   await channel.send({ embeds: [embed] }).catch(err =>
     console.warn('Konnte Mod-Log nicht senden:', err.message)
   );
 }
 
-// --------------------------------------------------------------------------
-// Warn System
-// --------------------------------------------------------------------------
+// ==================== WARN SYSTEM ====================
 
 async function warn(member, moderator, reason, modLogChannelId) {
-  const data = loadWarnings();
   const guildId = member.guild.id;
   const userId = member.id;
 
-  if (!data[guildId]) data[guildId] = {};
-  if (!data[guildId][userId]) data[guildId][userId] = [];
+  let doc = await Warn.findOne({ guildId, userId });
+  if (!doc) doc = new Warn({ guildId, userId, warnings: [] });
 
-  const warnId = data[guildId][userId].length + 1;
-  const warnEntry = {
+  const warnId = doc.warnings.length + 1;
+  doc.warnings.push({
     id: warnId,
     moderatorId: moderator.id,
     reason: reason || 'No reason provided',
-    timestamp: new Date().toISOString()
-  };
+    timestamp: new Date()
+  });
+  await doc.save();
 
-  data[guildId][userId].push(warnEntry);
-  saveWarnings(data);
-
-  const warnCount = data[guildId][userId].length;
+  const warnCount = doc.warnings.length;
   const escalation = getTimeoutForWarnCount(warnCount);
 
   let timeoutResult = null;
@@ -119,13 +79,10 @@ async function warn(member, moderator, reason, modLogChannelId) {
     try {
       await member.timeout(escalation.ms, `Auto-timeout: ${warnCount} warnings`);
       timeoutResult = escalation;
-
-      // DM User
       await member.send(
         `🔇 You have been timed out for **${escalation.text}** because you reached **${warnCount}** warnings.\n` +
         `Reason: ${reason || 'No reason provided'}`
       ).catch(() => {});
-
       await logModAction(member.guild, 'autotimeout', member.user, moderator, reason, `Warn #${warnCount} → ${escalation.text}`, modLogChannelId);
     } catch (err) {
       console.warn('Auto-timeout failed:', err.message);
@@ -137,56 +94,49 @@ async function warn(member, moderator, reason, modLogChannelId) {
   return { warnId, warnCount, timeoutResult };
 }
 
-function getWarnings(member) {
-  const data = loadWarnings();
-  return data[member.guild.id]?.[member.id] || [];
+async function getWarnings(member) {
+  const doc = await Warn.findOne({ guildId: member.guild.id, userId: member.id }).lean();
+  return doc ? doc.warnings : [];
 }
 
 async function clearWarnings(member, moderator, reason, modLogChannelId) {
-  const data = loadWarnings();
   const guildId = member.guild.id;
   const userId = member.id;
 
-  const count = data[guildId]?.[userId]?.length || 0;
+  const doc = await Warn.findOne({ guildId, userId }).lean();
+  const count = doc ? doc.warnings.length : 0;
   if (count === 0) return 0;
 
-  if (data[guildId]) delete data[guildId][userId];
-  saveWarnings(data);
+  await Warn.deleteOne({ guildId, userId });
 
-  // Also remove active timeout/mute
   if (member.isCommunicationDisabled?.()) {
     await member.timeout(null, 'Warnings cleared').catch(() => {});
   }
 
-  // Also remove Muted role if exists
-  const muteData = loadMutes();
+  const { getMuteData, loadMutes, saveMutes } = require('./mute-system');
+  const muteData = getMuteData();
   if (muteData.mutedRoleId && member.roles.cache.has(muteData.mutedRoleId)) {
     await member.roles.remove(muteData.mutedRoleId, 'Warnings cleared').catch(() => {});
   }
 
-  // Clean up mute entry if exists
+  const mutesData = loadMutes();
   const muteKey = `${guildId}_${userId}`;
-  if (muteData.mutes && muteData.mutes[muteKey]) {
-    delete muteData.mutes[muteKey];
-    saveMutes(muteData);
+  if (mutesData.mutes?.[muteKey]) {
+    delete mutesData.mutes[muteKey];
+    saveMutes(mutesData);
   }
 
   await logModAction(member.guild, 'clearwarns', member.user, moderator, reason, `${count} warning(s) cleared`, modLogChannelId);
-
   return count;
 }
 
-// --------------------------------------------------------------------------
-// Poll System
-// --------------------------------------------------------------------------
+// ==================== POLL SYSTEM ====================
 
 const NUMBER_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
 
 async function createPoll(interaction, question, options) {
   const validOptions = options.filter(o => o);
-  if (validOptions.length < 2) {
-    throw new Error('At least 2 options required');
-  }
+  if (validOptions.length < 2) throw new Error('At least 2 options required');
 
   const embed = new EmbedBuilder()
     .setTitle('📊 Poll')
@@ -200,27 +150,21 @@ async function createPoll(interaction, question, options) {
   });
 
   const message = await interaction.channel.send({ embeds: [embed] });
-
   for (let i = 0; i < validOptions.length; i++) {
     await message.react(NUMBER_EMOJIS[i]).catch(() => {});
   }
 
-  // Store poll for possible future use
-  const polls = loadPolls();
-  polls[message.id] = {
+  await Poll.create({
+    messageId: message.id,
     question,
     options: validOptions,
-    creatorId: interaction.user.id,
-    createdAt: new Date().toISOString()
-  };
-  savePolls(polls);
+    creatorId: interaction.user.id
+  });
 
   return message;
 }
 
-// --------------------------------------------------------------------------
-// Embed System
-// --------------------------------------------------------------------------
+// ==================== EMBED SYSTEM ====================
 
 function parseColor(colorInput) {
   if (!colorInput) return 0x5865F2;
@@ -240,7 +184,7 @@ async function createCustomEmbed(channel, title, description, color, footer, thu
   if (thumbnailUrl) embed.setThumbnail(thumbnailUrl);
   if (imageUrl) embed.setImage(imageUrl);
 
-  if (fields && fields.length > 0) {
+  if (fields?.length > 0) {
     fields.forEach(f => {
       if (f.name && f.value) {
         embed.addFields({ name: f.name, value: f.value, inline: f.inline || false });
@@ -254,16 +198,10 @@ async function createCustomEmbed(channel, title, description, color, footer, thu
 async function sendEmbedWithPing(channel, pingRole, embed) {
   if (pingRole) {
     const pingMsg = await channel.send({ content: pingRole }).catch(() => null);
-    if (pingMsg) {
-      setTimeout(() => pingMsg.delete().catch(() => {}), 1000);
-    }
+    if (pingMsg) setTimeout(() => pingMsg.delete().catch(() => {}), 1000);
   }
   return await channel.send({ embeds: [embed] });
 }
-
-// --------------------------------------------------------------------------
-// Exports
-// --------------------------------------------------------------------------
 
 module.exports = {
   warn,
@@ -272,7 +210,5 @@ module.exports = {
   createPoll,
   createCustomEmbed,
   sendEmbedWithPing,
-  logModAction,
-  loadPolls,
-  savePolls
+  logModAction
 };
