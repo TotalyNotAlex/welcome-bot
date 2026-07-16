@@ -1,4 +1,6 @@
 require('dotenv').config();
+const connectDB = require('./db');   // ← NEU
+connectDB();                          // ← NEU
 const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials, ChannelType, EmbedBuilder } = require('discord.js');
 const storage = require('./storage');
 const { buildWelcomeMessage, buildReminderMessage } = require('./welcome-message');
@@ -213,12 +215,12 @@ client.once('ready', async () => {
     return;
   }
 
-  const pending = storage.getAllPendingReminders();
+  const pending = await storage.getAllPendingReminders();
   if (pending.length === 0) return;
 
   console.log(`Stelle ${pending.length} offene Erinnerung(en) nach Neustart wieder her...`);
   for (const entry of pending) {
-    const member = await guild.members.fetch(entry.discordId).catch(() => null);
+    const member = await guild.members.fetch(entry.userId).catch(() => null);
     if (!member) continue;
     if (isVerified(member)) continue;
     const elapsed = Date.now() - new Date(entry.joinedAt).getTime();
