@@ -3,7 +3,8 @@ const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials, 
 const storage = require('./storage');
 const { buildWelcomeMessage, buildReminderMessage } = require('./welcome-message');
 const { getConfiguredRoles, buildReactionRolesEmbed } = require('./reactionroles');
-const { parseDuration, applyMute, removeMute, isMuted, recoverMutes } = require('./mute-system'); // <-- NEW: Mute system
+const { parseDuration, applyMute, removeMute, isMuted, recoverMutes } = require('./mute-system');
+const { warn, getWarnings, clearWarnings, createPoll, createCustomEmbed, sendEmbedWithPing } = require('./warn-system'); // <-- NEW
 
 // ===== TICKET SYSTEM IMPORTS =====
 const {
@@ -28,7 +29,7 @@ const {
   REMINDER_CHANNEL_FALLBACK,
   SUPPORT_ROLE_ID,
   TICKET_CATEGORY_ID,
-  MOD_LOG_CHANNEL_ID // <-- NEW: Mod log channel
+  MOD_LOG_CHANNEL_ID
 } = process.env;
 
 // ===== STAFF ROLE IDs =====
@@ -239,6 +240,54 @@ client.on('guildMemberAdd', async member => {
   await handleNewOrExistingUnverifiedMember(member, true);
 });
 
+client.on('guildMemberRemove', async member => {
+  const LEAVE_LOG_CHANNEL_ID = process.env.LEAVE_LOG_CHANNEL_ID;
+  if (!LEAVE_LOG_CHANNEL_ID) return;
+  const channel = await client.channels.fetch(LEAVE_LOG_CHANNEL_ID).catch(() => null);
+  if (!channel) return;
+
+  const { EmbedBuilder } = require('discord.js');
+
+  const joinedAt = member.joinedAt 
+    ? `<t:${Math.floor(member.joinedAt.getTime() / 1000)}:R>` 
+    : 'Unknown';
+
+  const roles = member.roles.cache
+    .filter(r => r.id !== member.guild.id)
+    .map(r => r.name)
+    .join(', ') || 'None';
+
+  const embed = new EmbedBuilder()
+    .setAuthor({ 
+      name: 'The Abyssal Emperors', 
+      iconURL: member.guild.iconURL({ dynamic: true }) 
+    })
+    .setTitle('🌊 A Soul Returns to the Void')
+    .setDescription(
+      `**${member.user.tag}** has faded into the deep waters...\n\n` +
+      `Once ruler of these depths, their presence now lingers only in memory.\n` +
+      `The abyss grows quieter without them.`
+    )
+    .addFields(
+      { name: '👤 User', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+      { name: '📅 Joined', value: joinedAt, inline: true },
+      { name: '🏷️ Roles Held', value: roles.length > 100 ? roles.substring(0, 100) + '...' : roles, inline: false }
+    )
+    .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+    .setImage('https://media.discordapp.net/attachments/placeholder/abyss_leave_banner.png') // Optional: custom banner
+    .setColor(0x2c3e50) // Deep dark blue-gray, melancholic
+    .setFooter({ 
+      text: `The Abyssal Emperors — Rulers of the Deep • Member #${member.guild.memberCount}`, 
+      iconURL: member.guild.iconURL({ dynamic: true }) 
+    })
+    .setTimestamp();
+
+  await channel.send({ embeds: [embed] }).catch(err => 
+    console.warn('Konnte Leave-Log nicht senden:', err.message)
+  );
+});
+
+
 client.on('messageReactionAdd', (reaction, user) => handleReactionRoleChange(reaction, user, 'add'));
 client.on('messageReactionRemove', (reaction, user) => handleReactionRoleChange(reaction, user, 'remove'));
 
@@ -377,7 +426,7 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   // ===== STAFF CHECK FOR ALL COMMANDS =====
-  const staffCommands = ['testwelcome', 'purge', 'giveaway', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute'];
+  const staffCommands = ['testwelcome', 'purge', 'giveaway', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed'];
   if (staffCommands.includes(interaction.commandName)) {
     if (!isStaff(interaction.member)) {
       return await denyAccess(interaction);
@@ -620,6 +669,167 @@ client.on('interactionCreate', async interaction => {
     } catch (err) {
       console.warn(`Unmute fehlgeschlagen fuer ${targetUser.tag}:`, err.message);
       return interaction.editReply('Something went wrong while unmuting this member. Check my permissions.');
+    }
+  }
+
+  // ==================== /warn ====================
+  if (commandName === 'warn') {
+    const targetUser = interaction.options.getUser('user');
+    const reason = interaction.options.getString('reason');
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+    if (!member) {
+      return interaction.editReply('That user could not be found on this server.');
+    }
+
+    if (member.id === interaction.user.id) {
+      return interaction.editReply('You cannot warn yourself.');
+    }
+
+    if (member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+      return interaction.editReply('You cannot warn a member who has the "Manage Messages" permission.');
+    }
+
+    try {
+      const result = await warn(member, interaction.user, reason, MOD_LOG_CHANNEL_ID);
+      let reply = `⚠️ ${targetUser.tag} has been warned (Warn #${result.warnCount})`;
+      if (result.timeoutResult) {
+        reply += `\n🔇 Auto-timeout applied: **${result.timeoutResult.text}**`;
+      }
+      if (reason) {
+        reply += `\nReason: ${reason}`;
+      }
+      return interaction.editReply(reply);
+    } catch (err) {
+      console.warn(`Warn fehlgeschlagen fuer ${targetUser.tag}:`, err.message);
+      return interaction.editReply('Something went wrong while warning this member.');
+    }
+  }
+
+  // ==================== /warnings ====================
+  if (commandName === 'warnings') {
+    const targetUser = interaction.options.getUser('user');
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+    if (!member) {
+      return interaction.editReply('That user could not be found on this server.');
+    }
+
+    const warnings = getWarnings(member);
+    if (warnings.length === 0) {
+      return interaction.editReply(`✅ ${targetUser.tag} has no warnings.`);
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(`⚠️ Warnings for ${targetUser.tag}`)
+      .setColor(0xffaa00)
+      .setFooter({ text: `Total: ${warnings.length} warning(s)` })
+      .setTimestamp();
+
+    warnings.forEach(w => {
+      const date = new Date(w.timestamp).toLocaleDateString('de-DE');
+      embed.addFields({
+        name: `#${w.id} — ${date}`,
+        value: `**Reason:** ${w.reason}\n**By:** <@${w.moderatorId}>`,
+        inline: false
+      });
+    });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  // ==================== /clearwarns ====================
+  if (commandName === 'clearwarns') {
+    const targetUser = interaction.options.getUser('user');
+    const reason = interaction.options.getString('reason');
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+    if (!member) {
+      return interaction.editReply('That user could not be found on this server.');
+    }
+
+    const count = await clearWarnings(member, interaction.user, reason, MOD_LOG_CHANNEL_ID);
+    if (count === 0) {
+      return interaction.editReply(`${targetUser.tag} has no warnings to clear.`);
+    }
+
+    return interaction.editReply(`🗑️ Cleared **${count}** warning(s) for ${targetUser.tag}${reason ? ` (${reason})` : ''}.`);
+  }
+
+  // ==================== /poll ====================
+  if (commandName === 'poll') {
+    const question = interaction.options.getString('question');
+    const options = [
+      interaction.options.getString('option1'),
+      interaction.options.getString('option2'),
+      interaction.options.getString('option3'),
+      interaction.options.getString('option4'),
+      interaction.options.getString('option5')
+    ];
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      await createPoll(interaction, question, options);
+      return interaction.editReply('✅ Poll created successfully!');
+    } catch (err) {
+      console.warn('Poll creation failed:', err.message);
+      return interaction.editReply('Something went wrong while creating the poll.');
+    }
+  }
+
+  // ==================== /embed ====================
+  if (commandName === 'embed') {
+    const targetChannel = interaction.options.getChannel('channel');
+    const title = interaction.options.getString('title');
+    const description = interaction.options.getString('description');
+    const color = interaction.options.getString('color');
+    const footer = interaction.options.getString('footer');
+    const thumbnail = interaction.options.getString('thumbnail');
+    const image = interaction.options.getString('image');
+    const ping = interaction.options.getString('ping');
+
+    const fields = [];
+    for (let i = 1; i <= 3; i++) {
+      const name = interaction.options.getString(`field${i}_name`);
+      const value = interaction.options.getString(`field${i}_value`);
+      if (name && value) {
+        fields.push({ name, value, inline: true });
+      }
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(description)
+        .setColor(color ? parseInt(color.replace('#', ''), 16) || 0x5865F2 : 0x5865F2)
+        .setTimestamp();
+
+      if (footer) embed.setFooter({ text: footer });
+      if (thumbnail) embed.setThumbnail(thumbnail);
+      if (image) embed.setImage(image);
+      if (fields.length > 0) embed.addFields(fields);
+
+      if (ping) {
+        const pingMsg = await targetChannel.send({ content: ping }).catch(() => null);
+        if (pingMsg) {
+          setTimeout(() => pingMsg.delete().catch(() => {}), 1000);
+        }
+      }
+
+      await targetChannel.send({ embeds: [embed] });
+      return interaction.editReply(`✅ Embed posted in <#${targetChannel.id}>.`);
+    } catch (err) {
+      console.warn('Embed creation failed:', err.message);
+      return interaction.editReply('Something went wrong while creating the embed. Check my permissions.');
     }
   }
 });
