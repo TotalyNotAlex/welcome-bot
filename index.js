@@ -40,11 +40,18 @@ const STAFF_ROLE_IDS = [
   '152699535328963282'
 ];
 
+const MEMBER_ROLE_ID = '1524181401442975750';
+
 const GIVEAWAY_HOST_ROLE_ID = '1526662161386967210';
 
 function isStaff(member) {
   if (!member || !member.roles) return false;
   return STAFF_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+}
+
+function isMember(member) {
+  if (!member || !member.roles) return false;
+  return member.roles.cache.has(MEMBER_ROLE_ID);
 }
 
 async function denyAccess(interaction) {
@@ -304,7 +311,7 @@ client.on('messageReactionAdd', (reaction, user) => handleReactionRoleChange(rea
 client.on('messageReactionRemove', (reaction, user) => handleReactionRoleChange(reaction, user, 'remove'));
 
 // ═══════════════════════════════════════════════════════
-// AFK: Auto-remove when user sends a message
+// AFK: Auto-remove when user sends a message + Welcome Back
 // ═══════════════════════════════════════════════════════
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
@@ -312,27 +319,36 @@ client.on('messageCreate', async message => {
 
   // Check if user was AFK and remove status
   if (afkUsers.has(message.author.id)) {
+    const afkData = afkUsers.get(message.author.id);
     afkUsers.delete(message.author.id);
     console.log(`[AFK] ${message.author.tag} is back — AFK removed`);
-    // Optional: Send a brief confirmation (can be disabled to avoid spam)
-    // await message.react('👋').catch(() => {});
+
+    // Send ephemeral "Welcome back" message
+    try {
+      await message.reply({
+        content: `👋 **Welcome back, ${message.member.displayName}!**\n💤 Your AFK status (*${afkData.reason}*) has been removed.`,
+        flags: MessageFlags.Ephemeral
+      });
+    } catch (err) {
+      console.warn(`[AFK] Could not send welcome back message: ${err.message}`);
+    }
   }
 
   // Check if message mentions any AFK users
-  if (message.mentions.users.size > 0) {
-    for (const [userId, mentionedUser] of message.mentions.users) {
-      if (afkUsers.has(userId)) {
-        const afkData = afkUsers.get(userId);
+  if (message.mentions.members.size > 0) {
+    for (const [memberId, mentionedMember] of message.mentions.members) {
+      if (afkUsers.has(memberId)) {
+        const afkData = afkUsers.get(memberId);
         const afkEmbed = new EmbedBuilder()
           .setDescription(
-            `💤 **${mentionedUser.username} is currently AFK**\n\n` +
+            `💤 **${mentionedMember.displayName} is currently AFK**\n\n` +
             `📝 **Reason:** ${afkData.reason}\n` +
             `⏰ **Since:** <t:${Math.floor(afkData.since / 1000)}:R>\n\n` +
             `> *He'll reply once he's back — try again later!*`
           )
           .setColor(10070709)
           .setFooter({
-            text: `AFK Status • Auto-removed when ${mentionedUser.username} sends a message`
+            text: `AFK Status • Auto-removed when ${mentionedMember.displayName} sends a message`
           });
 
         await message.reply({ embeds: [afkEmbed], allowedMentions: { repliedUser: false } }).catch(() => {});
@@ -476,15 +492,27 @@ client.on('interactionCreate', async interaction => {
 
   const staffCommands = ['testwelcome', 'purge', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed', 'embedcode'];
 
+  // Staff-only check for staff commands
   if (staffCommands.includes(interaction.commandName)) {
     if (!isStaff(interaction.member)) {
       return await denyAccess(interaction);
     }
   }
 
+  // Giveaway: Staff OR Giveaway Host
   if (interaction.commandName === 'giveaway') {
     if (!isStaff(interaction.member) && !interaction.member.roles.cache.has(GIVEAWAY_HOST_ROLE_ID)) {
       return await denyAccess(interaction);
+    }
+  }
+
+  // AFK: Member role required
+  if (interaction.commandName === 'afk') {
+    if (!isMember(interaction.member)) {
+      return interaction.reply({
+        content: '❌ You need the Member role to use this command.',
+        flags: MessageFlags.Ephemeral
+      });
     }
   }
 
