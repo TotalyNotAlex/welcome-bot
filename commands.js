@@ -141,7 +141,6 @@ module.exports = [
     )
     .toJSON(),
 
-  // ===== MUTE COMMANDS =====
   new SlashCommandBuilder()
     .setName('mute')
     .setDescription('Mute a member for a set duration or permanently')
@@ -201,7 +200,6 @@ module.exports = [
     )
     .toJSON(),
 
-  // ===== WARN COMMANDS =====
   new SlashCommandBuilder()
     .setName('warn')
     .setDescription('Warn a member')
@@ -247,7 +245,6 @@ module.exports = [
     )
     .toJSON(),
 
-  // ===== POLL COMMAND =====
   new SlashCommandBuilder()
     .setName('poll')
     .setDescription('Create a poll with up to 5 options')
@@ -289,7 +286,6 @@ module.exports = [
     )
     .toJSON(),
 
-  // ===== EMBED COMMAND =====
   new SlashCommandBuilder()
     .setName('embed')
     .setDescription('Create a custom embed message')
@@ -377,6 +373,18 @@ module.exports = [
         .setName('field3_value')
         .setDescription('Field 3 value')
         .setRequired(false)
+    )
+    .toJSON(),
+
+  // ===== EMBEDCODE COMMAND (unlimited fields) =====
+  new SlashCommandBuilder()
+    .setName('embedcode')
+    .setDescription('Create an embed from raw JSON code (unlimited fields)')
+    .addStringOption(option =>
+      option
+        .setName('json')
+        .setDescription('Paste your embed JSON here')
+        .setRequired(true)
     )
     .toJSON()
 ];

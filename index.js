@@ -429,7 +429,7 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  const staffCommands = ['testwelcome', 'purge', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed'];
+  const staffCommands = ['testwelcome', 'purge', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed', 'embedcode'];
 
   if (staffCommands.includes(interaction.commandName)) {
     if (!isStaff(interaction.member)) {
@@ -833,6 +833,37 @@ client.on('interactionCreate', async interaction => {
     } catch (err) {
       console.warn('Embed creation failed:', err.message);
       return interaction.editReply('Something went wrong while creating the embed. Check my permissions.');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // /embedcode Handler — JSON Embed Builder
+  // ═══════════════════════════════════════════════════════
+  if (commandName === 'embedcode') {
+    const jsonInput = interaction.options.getString('json');
+    const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      const embedData = JSON.parse(jsonInput);
+
+      // Validate required fields
+      if (!embedData.title && !embedData.description) {
+        return interaction.editReply({
+          content: '❌ Your JSON must contain at least a `title` or `description` field.'
+        });
+      }
+
+      const embed = new EmbedBuilder(embedData);
+
+      await targetChannel.send({ embeds: [embed] });
+      return interaction.editReply(`✅ Embed posted in <#${targetChannel.id}>.`);
+    } catch (err) {
+      // JSON parse error or EmbedBuilder validation error
+      return interaction.editReply({
+        content: `❌ Invalid JSON or Embed data: ${err.message}`
+      });
     }
   }
 });
