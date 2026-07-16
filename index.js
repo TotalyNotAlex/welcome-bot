@@ -311,7 +311,7 @@ client.on('messageReactionAdd', (reaction, user) => handleReactionRoleChange(rea
 client.on('messageReactionRemove', (reaction, user) => handleReactionRoleChange(reaction, user, 'remove'));
 
 // ═══════════════════════════════════════════════════════
-// AFK: Auto-remove when user sends a message + Welcome Back
+// AFK: Auto-remove when user sends a message + Welcome Back Reaction
 // ═══════════════════════════════════════════════════════
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
@@ -323,14 +323,11 @@ client.on('messageCreate', async message => {
     afkUsers.delete(message.author.id);
     console.log(`[AFK] ${message.author.tag} is back — AFK removed`);
 
-    // Send ephemeral "Welcome back" message
+    // Welcome back reaction 👋
     try {
-      await message.reply({
-        content: `👋 **Welcome back, ${message.member.displayName}!**\n💤 Your AFK status (*${afkData.reason}*) has been removed.`,
-        flags: MessageFlags.Ephemeral
-      });
+      await message.react('👋');
     } catch (err) {
-      console.warn(`[AFK] Could not send welcome back message: ${err.message}`);
+      console.warn(`[AFK] Could not react to welcome back message: ${err.message}`);
     }
   }
 
