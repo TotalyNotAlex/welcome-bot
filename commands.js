@@ -199,5 +199,184 @@ module.exports = [
         .setDescription('Reason for the unmute')
         .setRequired(false)
     )
+    .toJSON(),
+
+  // ===== WARN COMMANDS =====
+  new SlashCommandBuilder()
+    .setName('warn')
+    .setDescription('Warn a member')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('The member to warn')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Reason for the warning')
+        .setRequired(true)
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName('warnings')
+    .setDescription('View all warnings for a member')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('The member to check')
+        .setRequired(true)
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName('clearwarns')
+    .setDescription('Clear all warnings for a member')
+    .addUserOption(option =>
+      option
+        .setName('user')
+        .setDescription('The member to clear warnings for')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('reason')
+        .setDescription('Reason for clearing')
+        .setRequired(false)
+    )
+    .toJSON(),
+
+  // ===== POLL COMMAND =====
+  new SlashCommandBuilder()
+    .setName('poll')
+    .setDescription('Create a poll with up to 5 options')
+    .addStringOption(option =>
+      option
+        .setName('question')
+        .setDescription('The poll question')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('option1')
+        .setDescription('First option')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('option2')
+        .setDescription('Second option')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('option3')
+        .setDescription('Third option')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('option4')
+        .setDescription('Fourth option')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('option5')
+        .setDescription('Fifth option')
+        .setRequired(false)
+    )
+    .toJSON(),
+
+  // ===== EMBED COMMAND =====
+  new SlashCommandBuilder()
+    .setName('embed')
+    .setDescription('Create a custom embed message')
+    .addChannelOption(option =>
+      option
+        .setName('channel')
+        .setDescription('Channel to post the embed in')
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('title')
+        .setDescription('Embed title')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('description')
+        .setDescription('Embed description')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('color')
+        .setDescription('Hex color (e.g. #ff0000)')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('footer')
+        .setDescription('Footer text')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('thumbnail')
+        .setDescription('Thumbnail URL')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('image')
+        .setDescription('Image URL')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('ping')
+        .setDescription('Ping role (@everyone, @here, or role ID)')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('field1_name')
+        .setDescription('Field 1 name')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('field1_value')
+        .setDescription('Field 1 value')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('field2_name')
+        .setDescription('Field 2 name')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('field2_value')
+        .setDescription('Field 2 value')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('field3_name')
+        .setDescription('Field 3 name')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('field3_value')
+        .setDescription('Field 3 value')
+        .setRequired(false)
+    )
     .toJSON()
 ];

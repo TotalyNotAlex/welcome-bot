@@ -153,6 +153,24 @@ async function clearWarnings(member, moderator, reason, modLogChannelId) {
   if (data[guildId]) delete data[guildId][userId];
   saveWarnings(data);
 
+  // Also remove active timeout/mute
+  if (member.isCommunicationDisabled?.()) {
+    await member.timeout(null, 'Warnings cleared').catch(() => {});
+  }
+
+  // Also remove Muted role if exists
+  const muteData = loadMutes();
+  if (muteData.mutedRoleId && member.roles.cache.has(muteData.mutedRoleId)) {
+    await member.roles.remove(muteData.mutedRoleId, 'Warnings cleared').catch(() => {});
+  }
+
+  // Clean up mute entry if exists
+  const muteKey = `${guildId}_${userId}`;
+  if (muteData.mutes && muteData.mutes[muteKey]) {
+    delete muteData.mutes[muteKey];
+    saveMutes(muteData);
+  }
+
   await logModAction(member.guild, 'clearwarns', member.user, moderator, reason, `${count} warning(s) cleared`, modLogChannelId);
 
   return count;

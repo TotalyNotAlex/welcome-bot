@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials, ChannelType, EmbedBuilder } = require('discord.js');
 const storage = require('./storage');
 const { buildWelcomeMessage, buildReminderMessage } = require('./welcome-message');
 const { getConfiguredRoles, buildReactionRolesEmbed } = require('./reactionroles');
