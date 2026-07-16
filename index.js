@@ -1,14 +1,13 @@
 require('dotenv').config();
-const connectDB = require('./db');   // ← NEU
-connectDB();                          // ← NEU
+const connectDB = require('./db');
+connectDB();
 const { Client, GatewayIntentBits, PermissionFlagsBits, MessageFlags, Partials, ChannelType, EmbedBuilder } = require('discord.js');
 const storage = require('./storage');
 const { buildWelcomeMessage, buildReminderMessage } = require('./welcome-message');
 const { getConfiguredRoles, buildReactionRolesEmbed } = require('./reactionroles');
 const { parseDuration, applyMute, removeMute, isMuted, recoverMutes } = require('./mute-system');
-const { warn, getWarnings, clearWarnings, createPoll, createCustomEmbed, sendEmbedWithPing } = require('./warn-system'); // <-- NEW
+const { warn, getWarnings, clearWarnings, createPoll, createCustomEmbed, sendEmbedWithPing } = require('./warn-system');
 
-// ===== TICKET SYSTEM IMPORTS =====
 const {
   formatTicketName,
   buildTicketPanelEmbed,
@@ -34,15 +33,13 @@ const {
   MOD_LOG_CHANNEL_ID
 } = process.env;
 
-// ===== STAFF ROLE IDs =====
 const STAFF_ROLE_IDS = [
-  '1524181401493180718',  // ⛧Captain⛧
-  '1524181401493180717',  // 🩸ViceCaptains🩸
-  '1524181401484918991',  // Admin
-  '152699535328963282'    // Mod
+  '1524181401493180718',
+  '1524181401493180717',
+  '1524181401484918991',
+  '152699535328963282'
 ];
 
-// ===== GIVEAWAY HOST ROLE ID =====
 const GIVEAWAY_HOST_ROLE_ID = '1526662161386967210';
 
 function isStaff(member) {
@@ -131,9 +128,9 @@ function scheduleReminder(member, delayMs) {
 
 async function handleNewOrExistingUnverifiedMember(member, isFreshJoin) {
   if (isVerified(member)) return;
-  const status = storage.getReminderStatus(member.id);
+  const status = await storage.getReminderStatus(member.id);
   if (!status) {
-    storage.setJoinedAt(member.id, new Date().toISOString());
+    await storage.setJoinedAt(member.id, new Date().toISOString());
     scheduleReminder(member, reminderMs);
     return;
   }
@@ -159,11 +156,19 @@ async function handleReactionRoleChange(reaction, user, action) {
   if (user.bot) return;
   const ok = await resolveReaction(reaction);
   if (!ok) return;
-  const data = storage.getReactionRoleMessage(reaction.message.id);
+
+  const emojiName = reaction.emoji?.name || reaction.emoji?.toString();
+  if (!emojiName) {
+    console.warn('Reaction-Role: Kein Emoji-Name gefunden');
+    return;
+  }
+
+  const data = await storage.getReactionRoleMessage(reaction.message.id);
   if (!data) return;
-  const emoji = reaction.emoji.name;
-  const roleId = data.roles[emoji];
+
+  const roleId = data.roles?.[emojiName];
   if (!roleId) return;
+
   const guild = reaction.message.guild;
   if (!guild) return;
   const member = await guild.members.fetch(user.id).catch(() => null);
@@ -187,8 +192,7 @@ async function handleReactionRoleChange(reaction, user, action) {
 client.once('ready', async () => {
   console.log(`Welcome-Bot eingeloggt als ${client.user.tag}`);
 
-  // ===== RECOVER SLOWMODE TIMERS =====
-  const activeSlowmodes = storage.cleanupExpiredSlowmodeTimers();
+  const activeSlowmodes = await storage.cleanupExpiredSlowmodeTimers();
   const now = Date.now();
   for (const [channelId, timer] of Object.entries(activeSlowmodes)) {
     const remaining = timer.endAt - now;
@@ -198,13 +202,12 @@ client.once('ready', async () => {
         if (channel) {
           await channel.setRateLimitPerUser(0, 'Slowmode duration expired').catch(() => null);
         }
-        storage.removeSlowmodeTimer(channelId);
+        await storage.removeSlowmodeTimer(channelId);
       }, remaining);
       console.log(`[Slowmode] Recovered timer for channel ${channelId}, ${Math.round(remaining/1000)}s remaining`);
     }
   }
 
-  // ===== RECOVER MUTES =====
   await recoverMutes(client, MOD_LOG_CHANNEL_ID);
   console.log('[Mute] Recovery completed.');
 
@@ -238,9 +241,9 @@ client.on('guildMemberAdd', async member => {
       console.warn(`Konnte Unverified-Rolle nicht vergeben: ${err.message}`)
     );
   }
-  if (!storage.hasBeenGreeted(member.id)) {
+  if (!await storage.hasBeenGreeted(member.id)) {
     await sendWelcomeMessage(member);
-    storage.markGreeted(member.id);
+    await storage.markGreeted(member.id);
   }
   await handleNewOrExistingUnverifiedMember(member, true);
 });
@@ -250,8 +253,6 @@ client.on('guildMemberRemove', async member => {
   if (!LEAVE_LOG_CHANNEL_ID) return;
   const channel = await client.channels.fetch(LEAVE_LOG_CHANNEL_ID).catch(() => null);
   if (!channel) return;
-
-  const { EmbedBuilder } = require('discord.js');
 
   const joinedAt = member.joinedAt 
     ? `<t:${Math.floor(member.joinedAt.getTime() / 1000)}:R>` 
@@ -296,12 +297,11 @@ client.on('messageReactionAdd', (reaction, user) => handleReactionRoleChange(rea
 client.on('messageReactionRemove', (reaction, user) => handleReactionRoleChange(reaction, user, 'remove'));
 
 client.on('interactionCreate', async interaction => {
-  // ==================== BUTTON HANDLER ====================
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('giveaway_enter_')) {
       const messageId = interaction.customId.replace('giveaway_enter_', '');
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const giveaway = storage.getGiveaway(messageId);
+      const giveaway = await storage.getGiveaway(messageId);
       if (!giveaway) {
         return interaction.editReply({ content: 'This giveaway no longer exists.' });
       }
@@ -311,8 +311,8 @@ client.on('interactionCreate', async interaction => {
       if (giveaway.participants.includes(interaction.user.id)) {
         return interaction.editReply({ content: 'You have already entered this giveaway!' });
       }
-      storage.addParticipant(messageId, interaction.user.id);
-      const updatedGiveaway = storage.getGiveaway(messageId);
+      await storage.addParticipant(messageId, interaction.user.id);
+      const updatedGiveaway = await storage.getGiveaway(messageId);
       const { buildGiveawayEmbed, buildGiveawayButtonRow } = require('./giveaway');
       const embed = buildGiveawayEmbed(updatedGiveaway);
       const row = buildGiveawayButtonRow(messageId, false);
@@ -324,10 +324,10 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'ticket_create') {
       await interaction.reply({ content: '🎫 Creating your ticket...', flags: MessageFlags.Ephemeral }).catch(() => null);
-      if (storage.hasOpenTicket(interaction.user.id)) {
+      if (await storage.hasOpenTicket(interaction.user.id)) {
         return interaction.editReply({ content: 'You already have an open ticket.' }).catch(() => null);
       }
-      const ticketNumber = storage.getNextTicketNumber();
+      const ticketNumber = await storage.getNextTicketNumber();
       const channelName = formatTicketName(ticketNumber);
       const overwrites = [
         { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -360,7 +360,7 @@ client.on('interactionCreate', async interaction => {
           content: 'Could not create the ticket channel. Check my "Manage Channels" permission and that the Category ID is valid (or remove TICKET_CATEGORY_ID from .env to create without category).'
         }).catch(() => null);
       }
-      storage.createTicket(ticketChannel.id, {
+      await storage.createTicket(ticketChannel.id, {
         userId: interaction.user.id,
         guildId: interaction.guildId,
         ticketNumber,
@@ -379,16 +379,16 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.customId === 'ticket_close') {
-      const ticket = storage.getTicket(interaction.channelId);
+      const ticket = await storage.getTicket(interaction.channelId);
       if (!ticket) {
         return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral });
       }
-      storage.updateTicket(interaction.channelId, { closed: true });
+      await storage.updateTicket(interaction.channelId, { closed: true });
       await interaction.reply('🔒 This ticket will be deleted in 5 seconds...');
       setTimeout(async () => {
         const channel = await client.channels.fetch(interaction.channelId).catch(() => null);
         if (channel) await channel.delete().catch(() => null);
-        storage.deleteTicket(interaction.channelId);
+        await storage.deleteTicket(interaction.channelId);
       }, 5000);
       return;
     }
@@ -396,12 +396,12 @@ client.on('interactionCreate', async interaction => {
   }
 
   if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_reason_select') {
-    const ticket = storage.getTicket(interaction.channelId);
+    const ticket = await storage.getTicket(interaction.channelId);
     if (!ticket) {
       return interaction.reply({ content: 'This channel is not a ticket.', flags: MessageFlags.Ephemeral });
     }
     const reason = interaction.values[0];
-    storage.updateTicket(interaction.channelId, { reason });
+    await storage.updateTicket(interaction.channelId, { reason });
     try {
       const messages = await interaction.channel.messages.fetch({ limit: 10 });
       const botMessage = messages.find(m =>
@@ -429,16 +429,14 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  // ===== STAFF CHECK FOR ALL COMMANDS =====
   const staffCommands = ['testwelcome', 'purge', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed'];
-  
+
   if (staffCommands.includes(interaction.commandName)) {
     if (!isStaff(interaction.member)) {
       return await denyAccess(interaction);
     }
   }
 
-  // ===== GIVEAWAY CHECK (Staff OR Giveaway Host) =====
   if (interaction.commandName === 'giveaway') {
     if (!isStaff(interaction.member) && !interaction.member.roles.cache.has(GIVEAWAY_HOST_ROLE_ID)) {
       return await denyAccess(interaction);
@@ -540,7 +538,7 @@ client.on('interactionCreate', async interaction => {
     for (const { emoji, roleId } of configuredRoles) {
       roles[emoji] = roleId;
     }
-    storage.saveReactionRoleMessage(message.id, {
+    await storage.saveReactionRoleMessage(message.id, {
       channelId: targetChannel.id,
       guildId: interaction.guildId,
       roles
@@ -575,15 +573,15 @@ client.on('interactionCreate', async interaction => {
         content: `Could not set slowmode in <#${targetChannel.id}>. Check that I have "Manage Channel" permission there.`
       });
     }
-    const existingTimer = storage.getSlowmodeTimer(targetChannel.id);
+    const existingTimer = await storage.getSlowmodeTimer(targetChannel.id);
     if (existingTimer) {
-      storage.removeSlowmodeTimer(targetChannel.id);
+      await storage.removeSlowmodeTimer(targetChannel.id);
     }
     if (duration > 0) {
-      storage.saveSlowmodeTimer(targetChannel.id, cooldown, duration, interaction.guildId);
+      await storage.saveSlowmodeTimer(targetChannel.id, cooldown, duration, interaction.guildId);
       setTimeout(async () => {
         await targetChannel.setRateLimitPerUser(0, 'Slowmode duration expired').catch(() => null);
-        storage.removeSlowmodeTimer(targetChannel.id);
+        await storage.removeSlowmodeTimer(targetChannel.id);
       }, duration * 1000);
     }
     return interaction.editReply({
@@ -596,9 +594,9 @@ client.on('interactionCreate', async interaction => {
   if (commandName === 'unslowmode') {
     const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const existingTimer = storage.getSlowmodeTimer(targetChannel.id);
+    const existingTimer = await storage.getSlowmodeTimer(targetChannel.id);
     if (existingTimer) {
-      storage.removeSlowmodeTimer(targetChannel.id);
+      await storage.removeSlowmodeTimer(targetChannel.id);
     }
     const applied = await targetChannel.setRateLimitPerUser(0, `Slowmode removed by ${interaction.user.tag}`).catch(() => null);
     if (!applied) {
@@ -609,7 +607,6 @@ client.on('interactionCreate', async interaction => {
     return interaction.editReply({ content: `✅ Slowmode removed in <#${targetChannel.id}>.` });
   }
 
-  // ==================== /mute ====================
   if (commandName === 'mute') {
     const targetUser = interaction.options.getUser('user');
     const durationInput = interaction.options.getString('duration');
@@ -659,7 +656,6 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  // ==================== /unmute ====================
   if (commandName === 'unmute') {
     const targetUser = interaction.options.getUser('user');
     const reason = interaction.options.getString('reason');
@@ -684,7 +680,6 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  // ==================== /warn ====================
   if (commandName === 'warn') {
     const targetUser = interaction.options.getUser('user');
     const reason = interaction.options.getString('reason');
@@ -720,7 +715,6 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  // ==================== /warnings ====================
   if (commandName === 'warnings') {
     const targetUser = interaction.options.getUser('user');
 
@@ -731,7 +725,7 @@ client.on('interactionCreate', async interaction => {
       return interaction.editReply('That user could not be found on this server.');
     }
 
-    const warnings = getWarnings(member);
+    const warnings = await getWarnings(member);
     if (warnings.length === 0) {
       return interaction.editReply(`✅ ${targetUser.tag} has no warnings.`);
     }
@@ -754,7 +748,6 @@ client.on('interactionCreate', async interaction => {
     return interaction.editReply({ embeds: [embed] });
   }
 
-  // ==================== /clearwarns ====================
   if (commandName === 'clearwarns') {
     const targetUser = interaction.options.getUser('user');
     const reason = interaction.options.getString('reason');
@@ -774,7 +767,6 @@ client.on('interactionCreate', async interaction => {
     return interaction.editReply(`🗑️ Cleared **${count}** warning(s) for ${targetUser.tag}${reason ? ` (${reason})` : ''}.`);
   }
 
-  // ==================== /poll ====================
   if (commandName === 'poll') {
     const question = interaction.options.getString('question');
     const options = [
@@ -796,7 +788,6 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  // ==================== /embed ====================
   if (commandName === 'embed') {
     const targetChannel = interaction.options.getChannel('channel');
     const title = interaction.options.getString('title');
