@@ -42,6 +42,9 @@ const STAFF_ROLE_IDS = [
   '152699535328963282'    // Mod
 ];
 
+// ===== GIVEAWAY HOST ROLE ID =====
+const GIVEAWAY_HOST_ROLE_ID = '1526662161386967210';
+
 function isStaff(member) {
   if (!member || !member.roles) return false;
   return STAFF_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
@@ -276,8 +279,8 @@ client.on('guildMemberRemove', async member => {
       { name: '🏷️ Roles Held', value: roles.length > 100 ? roles.substring(0, 100) + '...' : roles, inline: false }
     )
     .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-    .setImage('https://media.discordapp.net/attachments/placeholder/abyss_leave_banner.png') // Optional: custom banner
-    .setColor(0x2c3e50) // Deep dark blue-gray, melancholic
+    .setImage('https://media.discordapp.net/attachments/placeholder/abyss_leave_banner.png')
+    .setColor(0x2c3e50)
     .setFooter({ 
       text: `The Abyssal Emperors — Rulers of the Deep • Member #${member.guild.memberCount}`, 
       iconURL: member.guild.iconURL({ dynamic: true }) 
@@ -288,7 +291,6 @@ client.on('guildMemberRemove', async member => {
     console.warn('Konnte Leave-Log nicht senden:', err.message)
   );
 });
-
 
 client.on('messageReactionAdd', (reaction, user) => handleReactionRoleChange(reaction, user, 'add'));
 client.on('messageReactionRemove', (reaction, user) => handleReactionRoleChange(reaction, user, 'remove'));
@@ -428,9 +430,17 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   // ===== STAFF CHECK FOR ALL COMMANDS =====
-  const staffCommands = ['testwelcome', 'purge', 'giveaway', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed'];
+  const staffCommands = ['testwelcome', 'purge', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed'];
+  
   if (staffCommands.includes(interaction.commandName)) {
     if (!isStaff(interaction.member)) {
+      return await denyAccess(interaction);
+    }
+  }
+
+  // ===== GIVEAWAY CHECK (Staff OR Giveaway Host) =====
+  if (interaction.commandName === 'giveaway') {
+    if (!isStaff(interaction.member) && !interaction.member.roles.cache.has(GIVEAWAY_HOST_ROLE_ID)) {
       return await denyAccess(interaction);
     }
   }
