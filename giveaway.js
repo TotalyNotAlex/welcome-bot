@@ -20,7 +20,7 @@ function buildGiveawayEmbed(giveaway) {
     .setDescription(`**${giveaway.prize}**\n\nReact with 🎉 to enter!\n\nEnds: <t:${endsAtSeconds}:R>`)
     .addFields(
       { name: 'Winners', value: `${giveaway.winnersCount}`, inline: true },
-      { name: 'Entries', value: `${giveaway.participants.length}`, inline: true },
+      { name: 'Entries', value: `${giveaway.participants?.length || 0}`, inline: true },
       { name: 'Hosted by', value: `<@${giveaway.hostId}>`, inline: true }
     )
     .setColor(GIVEAWAY_COLOR)
@@ -34,7 +34,7 @@ function buildEndedGiveawayEmbed(giveaway) {
     .setDescription(`**${giveaway.prize}**\n\nWinner(s): ${winnerText}`)
     .addFields(
       { name: 'Winners', value: `${giveaway.winnersCount}`, inline: true },
-      { name: 'Entries', value: `${giveaway.participants.length}`, inline: true },
+      { name: 'Entries', value: `${giveaway.participants?.length || 0}`, inline: true },
       { name: 'Hosted by', value: `<@${giveaway.hostId}>`, inline: true }
     )
     .setColor(ENDED_COLOR);
@@ -93,7 +93,7 @@ async function start(interaction, client) {
   const message = await channel.send({ embeds: [embed], components: [row] });
 
   const fullGiveawayData = { ...giveawayData, messageId: message.id };
-  storage.createGiveaway(message.id, fullGiveawayData);
+  await storage.createGiveaway(message.id, fullGiveawayData);
 
   const updatedEmbed = buildGiveawayEmbed(fullGiveawayData);
   const updatedRow = buildGiveawayButtonRow(message.id, false);
@@ -101,24 +101,22 @@ async function start(interaction, client) {
 
   await interaction.editReply(`Giveaway started in ${channel}!`);
 
-  // ===== AUTO-PING: Giveaway Ping Rolle erwähnen =====
   const pingRoleId = process.env.ROLE_GIVEAWAY_PING_ID;
   if (pingRoleId) {
     await channel.send(`<@&${pingRoleId}> 🎉 A new giveaway has started! **${prize}** — Ends <t:${Math.floor(endsAt / 1000)}:R>!`).catch(err => {
       console.warn('Konnte Giveaway-Ping nicht senden:', err.message);
     });
   }
-  // ====================================================
 
   setTimeout(() => endGiveaway(message.id, client), durationMs);
 }
 
 async function endGiveaway(messageId, client) {
-  const giveaway = storage.getGiveaway(messageId);
+  const giveaway = await storage.getGiveaway(messageId);
   if (!giveaway || giveaway.ended) return;
 
-  const winners = pickWinners(giveaway.participants, giveaway.winnersCount);
-  storage.updateGiveaway(messageId, { ended: true, winners });
+  const winners = pickWinners(giveaway.participants || [], giveaway.winnersCount);
+  await storage.updateGiveaway(messageId, { ended: true, winners });
 
   const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
   if (!channel) return;
@@ -126,7 +124,8 @@ async function endGiveaway(messageId, client) {
   const message = await channel.messages.fetch(messageId).catch(() => null);
   if (!message) return;
 
-  const embed = buildEndedGiveawayEmbed(storage.getGiveaway(messageId));
+  const updatedGiveaway = await storage.getGiveaway(messageId);
+  const embed = buildEndedGiveawayEmbed(updatedGiveaway);
   const row = buildGiveawayButtonRow(messageId, true);
 
   await message.edit({ embeds: [embed], components: [row] });
@@ -148,7 +147,7 @@ async function end(interaction, client) {
   const messageId = interaction.options.getString('message_id');
   await interaction.deferReply({ ephemeral: true });
 
-  const giveaway = storage.getGiveaway(messageId);
+  const giveaway = await storage.getGiveaway(messageId);
   if (!giveaway) {
     return interaction.editReply('Giveaway not found.');
   }
@@ -166,14 +165,14 @@ async function reroll(interaction, client) {
 
   await interaction.deferReply({ ephemeral: true });
 
-  const giveaway = storage.getGiveaway(messageId);
+  const giveaway = await storage.getGiveaway(messageId);
   if (!giveaway) {
     return interaction.editReply('Giveaway not found.');
   }
 
   const count = newWinnersCount || giveaway.winnersCount;
-  const winners = pickWinners(giveaway.participants, count);
-  storage.updateGiveaway(messageId, { winners });
+  const winners = pickWinners(giveaway.participants || [], count);
+  await storage.updateGiveaway(messageId, { winners });
 
   const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
   if (channel) {
@@ -185,9 +184,9 @@ async function reroll(interaction, client) {
 }
 
 async function list(interaction) {
-  const giveaways = storage.getActiveGiveaways(interaction.guildId);
+  const giveaways = await storage.getActiveGiveaways(interaction.guildId);
   
-  if (giveaways.length === 0) {
+  if (!giveaways || giveaways.length === 0) {
     return interaction.reply({ content: 'No active giveaways on this server.', ephemeral: true });
   }
 
@@ -207,25 +206,27 @@ async function list(interaction) {
 }
 
 async function recoverGiveaways(client) {
-  const all = storage.getAllGiveaways();
+  const all = await storage.getAllGiveaways();
   const now = Date.now();
   let resumed = 0;
   let endedOverdue = 0;
 
-  for (const [messageId, giveaway] of Object.entries(all)) {
+  if (!all || all.length === 0) return;
+
+  for (const giveaway of all) {
     if (giveaway.ended) continue;
 
     const remaining = giveaway.endsAt - now;
 
     if (remaining <= 0) {
-      console.log(`[Giveaway] Ending overdue giveaway: ${giveaway.prize} (${messageId})`);
-      await endGiveaway(messageId, client).catch(err => 
-        console.error(`[Giveaway] Failed to end overdue giveaway ${messageId}:`, err)
+      console.log(`[Giveaway] Ending overdue giveaway: ${giveaway.prize} (${giveaway.messageId})`);
+      await endGiveaway(giveaway.messageId, client).catch(err => 
+        console.error(`[Giveaway] Failed to end overdue giveaway ${giveaway.messageId}:`, err)
       );
       endedOverdue++;
     } else {
       console.log(`[Giveaway] Resuming: ${giveaway.prize}, ends in ${Math.floor(remaining / 1000)}s`);
-      setTimeout(() => endGiveaway(messageId, client), remaining);
+      setTimeout(() => endGiveaway(giveaway.messageId, client), remaining);
       resumed++;
     }
   }
