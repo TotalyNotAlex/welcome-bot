@@ -44,9 +44,18 @@ const MEMBER_ROLE_ID = '1524181401442975750';
 
 const GIVEAWAY_HOST_ROLE_ID = '1526662161386967210';
 
-function isStaff(member) {
-  if (!member || !member.roles) return false;
-  return STAFF_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+// ═══════════════════════════════════════════════════════
+// FIXED: Async isStaff with fresh member fetch
+// ═══════════════════════════════════════════════════════
+async function isStaff(member) {
+  if (!member || !member.guild) return false;
+  try {
+    const freshMember = await member.guild.members.fetch(member.id);
+    return STAFF_ROLE_IDS.some(roleId => freshMember.roles.cache.has(roleId));
+  } catch {
+    // Fallback to cached roles if fetch fails
+    return STAFF_ROLE_IDS.some(roleId => member.roles?.cache.has(roleId));
+  }
 }
 
 function isMember(member) {
@@ -489,16 +498,20 @@ client.on('interactionCreate', async interaction => {
 
   const staffCommands = ['testwelcome', 'purge', 'reactionroles', 'ticketsetup', 'slowmode', 'unslowmode', 'mute', 'unmute', 'warn', 'warnings', 'clearwarns', 'poll', 'embed', 'embedcode'];
 
-  // Staff-only check for staff commands
+  // ═══════════════════════════════════════════════════════
+  // FIXED: Async staff check with fresh member fetch
+  // ═══════════════════════════════════════════════════════
   if (staffCommands.includes(interaction.commandName)) {
-    if (!isStaff(interaction.member)) {
+    const staffCheck = await isStaff(interaction.member);
+    if (!staffCheck) {
       return await denyAccess(interaction);
     }
   }
 
   // Giveaway: Staff OR Giveaway Host
   if (interaction.commandName === 'giveaway') {
-    if (!isStaff(interaction.member) && !interaction.member.roles.cache.has(GIVEAWAY_HOST_ROLE_ID)) {
+    const staffCheck = await isStaff(interaction.member);
+    if (!staffCheck && !interaction.member.roles.cache.has(GIVEAWAY_HOST_ROLE_ID)) {
       return await denyAccess(interaction);
     }
   }
